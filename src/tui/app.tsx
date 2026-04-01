@@ -8,16 +8,152 @@ import type { AIMessageChunk, BaseMessage } from "@langchain/core/messages";
 import type { PineconeStore } from "@langchain/pinecone";
 import type { ChatAnthropic } from "@langchain/anthropic";
 import type { ChatPromptTemplate } from "@langchain/core/prompts";
+import { z } from "zod";
+import { tool, type DynamicStructuredTool } from "@langchain/core/tools";
 import { createVectorStore } from "../retrieval/store.js";
 import { retrieve } from "../retrieval/retriever.js";
 import { createDeveloper, createLLM, createPlanner, createTester } from "../generation/llm.js";
-import { createChatPrompt, createTeamPrompt } from "../generation/prompt.js";
-import { filesystemTools } from "../tools/filesystem.js";
+import { createChatPrompt, createDeveloperPrompt, createTesterPrompt, createTeamPrompt } from "../generation/prompt.js";
+import { filesystemTools, readFileTool, listDirectoryTool, writeFileTool } from "../tools/filesystem.js";
+import { runCommandTool } from "../tools/shell.js";
 import { ingestFile } from "../ingest/pipeline.js";
 import { ChatMessageView } from "./chat.js";
 import { StatusBar, type AppState } from "./status.js";
 import type { AppConfig, ChatMessage, RetrievalResult } from "../types.js";
 import { ChatOpenAI } from "@langchain/openai";
+
+// ─── Sub-agent runner ──────────────────────────────────────────────────────────
+// Runs a single sub-agent (developer or tester) in an agentic tool-use loop.
+//
+// Each iteration streams one LLM response. If the response contains tool calls,
+// each tool is invoked and its result is appended to `invokeMessages` before the
+// next iteration. The loop exits when the model produces a response with no tool
+// calls — i.e. it has finished its task and is reporting back in plain text.
+//
+// Returns the full concatenated text produced by the agent across all iterations,
+// which the planner receives as the tool result of `send_message`.
+
+async function runSubAgent(
+  agent: ChatAnthropic | ChatOpenAI,
+  agentTools: typeof filesystemTools,
+  promptFn: () => ReturnType<typeof createDeveloperPrompt>,
+  message: string,
+  onStatus: (msg: string) => void,
+  agentName: string,
+): Promise<string> {
+  const agentWithTools = agent.bindTools(agentTools);
+  const prompt = promptFn();
+  const promptMessages = await prompt.formatMessages({ input: message });
+  const invokeMessages: BaseMessage[] = [...promptMessages];
+  let fullText = "";
+
+  while (true) {
+    // Stream one LLM turn, accumulating chunks into a single AIMessageChunk
+    // so we can inspect tool_calls after the stream ends.
+    let accChunk: AIMessageChunk | null = null;
+    const stream = await agentWithTools.stream(invokeMessages);
+    for await (const chunk of stream) {
+      const c = chunk as AIMessageChunk;
+      accChunk = accChunk ? (accChunk.concat(c) as AIMessageChunk) : c;
+      const text =
+        typeof c.content === "string"
+          ? c.content
+          : Array.isArray(c.content)
+            ? c.content.map((p) => (typeof p === "string" ? p : "text" in p ? p.text : "")).join("")
+            : "";
+      fullText += text;
+    }
+
+    if (!accChunk) break;
+
+    // Append the assistant turn. AIMessageChunk must be converted to AIMessage
+    // so Anthropic serializes tool_calls in the expected format.
+    invokeMessages.push(
+      new AIMessage({
+        content: accChunk.content,
+        tool_calls: accChunk.tool_calls,
+        additional_kwargs: accChunk.additional_kwargs,
+        id: accChunk.id,
+      }),
+    );
+
+    const toolCalls = accChunk.tool_calls ?? [];
+    if (toolCalls.length === 0) break; // no tool calls → agent is done
+
+    onStatus(`${agentName} using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`);
+    for (const toolCall of toolCalls) {
+      const toolFn = agentTools.find((t) => t.name === toolCall.name);
+      const toolMsg = toolFn
+        ? await toolFn.invoke(toolCall)
+        : new ToolMessage({
+            content: `Unknown tool: ${toolCall.name}`,
+            tool_call_id: toolCall.id ?? randomUUID(),
+            name: toolCall.name,
+          });
+      invokeMessages.push(toolMsg as ToolMessage);
+    }
+  }
+
+  return fullText;
+}
+
+// ─── send_message tool factory ────────────────────────────────────────────────
+// Returns the `send_message` LangChain tool that the planner uses to delegate
+// work. When the planner calls send_message({ id: "developer", message: "..." }),
+// this tool spins up the developer's agentic loop synchronously and returns its
+// result as a JSON ToolMessage. The planner then decides whether to call the
+// tester, ask a follow-up, or report back to the user.
+//
+// Tool access by role:
+//   developer — read_file, list_directory, write_file
+//   tester    — read_file, list_directory, write_file, run_command
+
+function createSendMessageTool(
+  developer: ChatAnthropic | ChatOpenAI,
+  tester: ChatAnthropic | ChatOpenAI,
+  onStatus: (msg: string) => void,
+) {
+  const developerTools = [readFileTool, listDirectoryTool, writeFileTool];
+  const testerTools = [readFileTool, listDirectoryTool, writeFileTool, runCommandTool];
+
+  return tool(
+    async ({ id, message }: { id: string; message: string }) => {
+      if (id === "developer") {
+        onStatus("Developer is working...");
+        const result = await runSubAgent(
+          developer,
+          developerTools,
+          createDeveloperPrompt,
+          message,
+          onStatus,
+          "Developer",
+        );
+        return JSON.stringify({ id: "coordinator", status: "success", message: result });
+      }
+
+      if (id === "tester") {
+        onStatus("Tester is working...");
+        const result = await runSubAgent(tester, testerTools, createTesterPrompt, message, onStatus, "Tester");
+        return JSON.stringify({ id: "coordinator", status: "success", message: result });
+      }
+
+      return JSON.stringify({
+        id: "coordinator",
+        status: "failure",
+        message: `Unknown agent: ${id}. Valid agents: developer, tester.`,
+      });
+    },
+    {
+      name: "send_message",
+      description:
+        "Delegate a task to a sub-agent. Use 'developer' to implement code changes, 'tester' to write and run tests.",
+      schema: z.object({
+        id: z.enum(["developer", "tester"]).describe("The sub-agent to message"),
+        message: z.string().describe("A self-contained task description with all context the agent needs"),
+      }),
+    },
+  );
+}
 
 interface AppProps {
   config: AppConfig;
@@ -228,8 +364,12 @@ export function App({ config, mode = "chat" }: AppProps) {
         setStreamingText("");
 
         try {
-          const planner = llm[0] as ChatAnthropic; // planner drives the team loop
-          const plannerWithTools = planner.bindTools(filesystemTools);
+          const planner = llm[0] as ChatAnthropic;
+          const developer = llm[1] as ChatAnthropic;
+          const tester = llm[2] as ChatAnthropic;
+          const sendMessageTool = createSendMessageTool(developer, tester, setStatusMsg);
+          const plannerTools: DynamicStructuredTool[] = [readFileTool, listDirectoryTool, sendMessageTool];
+          const plannerWithTools = planner.bindTools(plannerTools);
 
           const promptMessages = await ragPrompt!.formatMessages({
             chat_history: chatHistory,
@@ -273,7 +413,7 @@ export function App({ config, mode = "chat" }: AppProps) {
 
             setStatusMsg(`Using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`);
             for (const toolCall of toolCalls) {
-              const toolFn = filesystemTools.find((t) => t.name === toolCall.name);
+              const toolFn = plannerTools.find((t) => t.name === toolCall.name);
               // invoke(ToolCall) returns a ToolMessage directly — push it as-is
               const toolMsg = toolFn
                 ? await toolFn.invoke(toolCall)
