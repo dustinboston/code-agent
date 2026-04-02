@@ -1,3 +1,18 @@
+/**
+ * @module config
+ *
+ * Layered configuration resolution for the RAG Starter application.
+ *
+ * Configuration is assembled from four sources in ascending priority order:
+ * 1. Built-in {@link DEFAULTS} — always present.
+ * 2. `rag-starter.config.json` in the working directory — optional file override.
+ * 3. Environment variables (e.g. `PINECONE_INDEX`) — loaded via `dotenv`.
+ * 4. CLI-supplied overrides passed directly to {@link loadConfig}.
+ *
+ * Use {@link loadConfig} to obtain a fully-merged {@link AppConfig} and
+ * {@link validateConfig} to assert that all required secrets are present
+ * before making any network calls.
+ */
 import { config as dotenvConfig } from "dotenv";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
@@ -11,7 +26,7 @@ const DEFAULTS: AppConfig = {
     provider: "anthropic",
     model: "claude-sonnet-4-6", // /6/20250514/
     temperature: 0.7,
-    maxTokens: 2048,
+    maxTokens: 8192,
   },
   embedding: {
     provider: "openai",
@@ -33,28 +48,37 @@ const DEFAULTS: AppConfig = {
   storage: {
     dataDir: "./data",
   },
-  // Interprets requirements from the user and converts them into stories.
   planner: {
     provider: "anthropic",
     model: "claude-opus-4-6",
     temperature: 0.7,
-    maxTokens: 2048,
+    maxTokens: 8192,
   },
   developer: {
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     temperature: 0.3,
-    maxTokens: 2048,
+    maxTokens: 8192,
   },
   // Assumes the role of a QA Engineer
   tester: {
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     temperature: 0.3,
-    maxTokens: 2048,
+    maxTokens: 8192,
   },
 };
 
+/**
+ * Attempts to read and parse `rag-starter.config.json` from the current
+ * working directory.
+ *
+ * Returns an empty object when the file does not exist or cannot be parsed,
+ * so callers can always safely spread the result into the merge chain.
+ *
+ * @returns A partial {@link AppConfig} containing only the fields present in
+ *   the JSON file, or `{}` if the file is absent or malformed.
+ */
 function loadFileConfig(): Partial<AppConfig> {
   const configPath = resolve("./rag-starter.config.json");
   if (!existsSync(configPath)) return {};
@@ -66,6 +90,19 @@ function loadFileConfig(): Partial<AppConfig> {
   }
 }
 
+/**
+ * Recursively merges two or more partial objects into a single object.
+ *
+ * Plain objects are merged depth-first so that nested keys from later
+ * arguments override only the specific sub-keys they define, rather than
+ * replacing the entire nested object. Arrays and primitive values are
+ * replaced wholesale. `undefined` values are skipped so that absent CLI
+ * flags do not clobber file or default values.
+ *
+ * @param objects - One or more partial objects to merge, in ascending
+ *   priority order (rightmost wins).
+ * @returns A new object containing the deep-merged result.
+ */
 // Deep merge: later objects override earlier ones. Skips undefined values.
 function deepMerge<T extends object>(...objects: Array<Partial<T>>): T {
   const result = {} as T;
@@ -82,6 +119,18 @@ function deepMerge<T extends object>(...objects: Array<Partial<T>>): T {
   return result;
 }
 
+/**
+ * Resolves the application configuration by merging all config sources.
+ *
+ * Sources are applied in the following priority order (lowest → highest):
+ * built-in defaults → `rag-starter.config.json` → environment variables →
+ * the `overrides` argument.
+ *
+ * @param overrides - Optional partial config supplied by CLI flags or tests.
+ *   Any keys provided here take precedence over all other sources.
+ * @returns A fully-populated {@link AppConfig} ready for use by the rest of
+ *   the application.
+ */
 // Resolve config: defaults → config file → env vars → CLI overrides
 export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const fileConfig = loadFileConfig();
@@ -96,6 +145,17 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return deepMerge(DEFAULTS, fileConfig, envConfig, overrides);
 }
 
+/**
+ * Validates that all required environment variables and config values are
+ * present.
+ *
+ * @param config - The fully-merged application configuration to validate.
+ *
+ * @remarks
+ * Checks for `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `PINECONE_API_KEY`, and
+ * a non-empty `config.pinecone.indexName`. If any are missing, an error
+ * message is printed to `stderr` and the process exits with code `1`.
+ */
 export function validateConfig(config: AppConfig): void {
   const missing: string[] = [];
   if (!process.env.ANTHROPIC_API_KEY) missing.push("ANTHROPIC_API_KEY");

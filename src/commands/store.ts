@@ -1,3 +1,11 @@
+/**
+ * @module commands/store
+ *
+ * Defines the `store` CLI sub-command group, which exposes two sub-commands
+ * for managing the local document registry:
+ * - `store list` — display all ingested documents.
+ * - `store clear` — delete all local records and their Pinecone vectors.
+ */
 import { Command } from "commander";
 import chalk from "chalk";
 import { existsSync, readdirSync, readFileSync, unlinkSync } from "fs";
@@ -6,6 +14,20 @@ import { loadConfig } from "../config.js";
 import type { IngestedDocument } from "../types.js";
 import { Pinecone } from "@pinecone-database/pinecone";
 
+/**
+ * Commander command that lists all documents currently in the local registry.
+ *
+ * @remarks
+ * Reads JSON metadata files from `<dataDir>/documents/` and prints a
+ * human-readable summary (source path, chunk count, format, ingest time) for
+ * each one. If no documents have been ingested yet, a friendly message is
+ * shown instead.
+ *
+ * @example
+ * ```bash
+ * npx rag-starter store list
+ * ```
+ */
 const listCommand = new Command("list")
   .description("List documents that have been ingested")
   .action(() => {
@@ -40,6 +62,22 @@ const listCommand = new Command("list")
     console.log();
   });
 
+/**
+ * Commander command that removes all ingested documents from both Pinecone
+ * and the local registry.
+ *
+ * @remarks
+ * First attempts to delete all vectors from the configured Pinecone index
+ * (or namespace, if one is set). Then deletes every JSON metadata file from
+ * `<dataDir>/documents/`. If the Pinecone deletion fails, a warning is
+ * printed but the local files are still removed. Exits cleanly if there is
+ * nothing to clear.
+ *
+ * @example
+ * ```bash
+ * npx rag-starter store clear
+ * ```
+ */
 const clearCommand = new Command("clear")
   .description("Clear all ingested documents and their Pinecone vectors")
   .action(async () => {
@@ -95,6 +133,16 @@ const clearCommand = new Command("clear")
     }
   });
 
+/**
+ * Commander command group that aggregates the `list` and `clear` sub-commands
+ * under the `store` namespace.
+ *
+ * @example
+ * ```bash
+ * npx rag-starter store list
+ * npx rag-starter store clear
+ * ```
+ */
 export const storeCommand = new Command("store")
   .description("Manage the local document registry")
   .addCommand(listCommand)

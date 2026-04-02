@@ -1,3 +1,11 @@
+/**
+ * @module tui/app
+ *
+ * Root Ink component for the RAG Starter TUI. Manages the full application
+ * lifecycle — Pinecone / LLM initialisation, user input handling, slash
+ * commands, RAG retrieval, LLM streaming, and the multi-agent "team" mode
+ * where a planner delegates to developer and tester sub-agents.
+ */
 import React, { useState, useEffect, useCallback } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import Spinner from "ink-spinner";
@@ -23,16 +31,25 @@ import type { AppConfig, ChatMessage, RetrievalResult } from "../types.js";
 import { ChatOpenAI } from "@langchain/openai";
 
 // ─── Sub-agent runner ──────────────────────────────────────────────────────────
-// Runs a single sub-agent (developer or tester) in an agentic tool-use loop.
-//
-// Each iteration streams one LLM response. If the response contains tool calls,
-// each tool is invoked and its result is appended to `invokeMessages` before the
-// next iteration. The loop exits when the model produces a response with no tool
-// calls — i.e. it has finished its task and is reporting back in plain text.
-//
-// Returns the full concatenated text produced by the agent across all iterations,
-// which the planner receives as the tool result of `send_message`.
 
+/**
+ * Runs a single sub-agent (developer or tester) in an agentic tool-use loop.
+ *
+ * Each iteration streams one LLM response. If the response contains tool
+ * calls, every tool is invoked and its result is appended to the message
+ * history before the next iteration begins. The loop exits when the model
+ * produces a response with no tool calls — i.e. it has finished its task and
+ * is reporting back in plain text.
+ *
+ * @param agent - The LLM instance that powers this sub-agent.
+ * @param agentTools - Array of LangChain tools the agent is allowed to call.
+ * @param promptFn - Factory that returns the agent's system prompt template.
+ * @param message - The task description from the planner.
+ * @param onStatus - Callback invoked to update the TUI status bar.
+ * @param agentName - Display name used in status and activity messages.
+ * @param onActivity - Optional callback for detailed activity log lines.
+ * @returns The full concatenated text the agent produced across all iterations.
+ */
 async function runSubAgent(
   agent: ChatAnthropic | ChatOpenAI,
   agentTools: typeof filesystemTools,
@@ -40,6 +57,7 @@ async function runSubAgent(
   message: string,
   onStatus: (msg: string) => void,
   agentName: string,
+  onActivity?: (line: string) => void,
 ): Promise<string> {
   const agentWithTools = agent.bindTools(agentTools);
   const prompt = promptFn();
@@ -51,20 +69,40 @@ async function runSubAgent(
     // Stream one LLM turn, accumulating chunks into a single AIMessageChunk
     // so we can inspect tool_calls after the stream ends.
     let accChunk: AIMessageChunk | null = null;
+    let iterText = "";
+    let announcedTools = new Set<string>();
     const stream = await agentWithTools.stream(invokeMessages);
     for await (const chunk of stream) {
       const c = chunk as AIMessageChunk;
       accChunk = accChunk ? (accChunk.concat(c) as AIMessageChunk) : c;
+
+      if (c.tool_call_chunks && onActivity) {
+        for (const tcc of c.tool_call_chunks) {
+          if (tcc.name && !announcedTools.has(tcc.index?.toString() ?? tcc.id ?? "")) {
+            const key = tcc.index?.toString() ?? tcc.id ?? "";
+            if (key) announcedTools.add(key);
+            onActivity(`${agentName} preparing ${tcc.name}...`);
+          }
+        }
+      }
+
       const text =
         typeof c.content === "string"
           ? c.content
           : Array.isArray(c.content)
             ? c.content.map((p) => (typeof p === "string" ? p : "text" in p ? p.text : "")).join("")
             : "";
+      iterText += text;
       fullText += text;
     }
 
     if (!accChunk) break;
+
+    // Surface agent text to the activity log (truncated for readability)
+    if (onActivity && iterText.trim()) {
+      const preview = iterText.trim().replace(/\n/g, " ");
+      onActivity(`${agentName}: ${preview.length > 120 ? preview.slice(0, 117) + "..." : preview}`);
+    }
 
     // Append the assistant turn. AIMessageChunk must be converted to AIMessage
     // so Anthropic serializes tool_calls in the expected format.
@@ -82,6 +120,15 @@ async function runSubAgent(
 
     onStatus(`${agentName} using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`);
     for (const toolCall of toolCalls) {
+      if (onActivity) {
+        const argsSummary = Object.entries(toolCall.args ?? {})
+          .map(([k, v]) => {
+            const s = typeof v === "string" ? v : JSON.stringify(v);
+            return `${k}: ${s.length > 60 ? s.slice(0, 57) + "..." : s}`;
+          })
+          .join(", ");
+        onActivity(`${agentName} → ${toolCall.name}(${argsSummary})`);
+      }
       const toolFn = agentTools.find((t) => t.name === toolCall.name);
       let toolMsg: ToolMessage;
       if (!toolFn) {
@@ -96,13 +143,23 @@ async function runSubAgent(
         } catch (e) {
           // Return the error as a ToolMessage so the agent can self-correct
           // rather than crashing the whole team loop.
+          const errorMsg = `Tool error: ${e instanceof Error ? e.message : String(e)}`;
+          if (onActivity) onActivity(chalk.red(`    ⚠ ${errorMsg.slice(0, 500)}`));
           toolMsg = new ToolMessage({
-            content: `Tool error: ${e instanceof Error ? e.message : String(e)}`,
+            content: errorMsg,
             tool_call_id: toolCall.id ?? randomUUID(),
             name: toolCall.name,
           });
         }
       }
+      
+      if (
+        typeof toolMsg.content === "string" && 
+        (toolMsg.content.startsWith("Error ") || toolMsg.content.startsWith("Tool error:"))
+      ) {
+        if (onActivity) onActivity(chalk.red(`    ⚠ ${toolMsg.content.slice(0, 150)}`));
+      }
+
       invokeMessages.push(toolMsg);
     }
   }
@@ -111,20 +168,32 @@ async function runSubAgent(
 }
 
 // ─── send_message tool factory ────────────────────────────────────────────────
-// Returns the `send_message` LangChain tool that the planner uses to delegate
-// work. When the planner calls send_message({ id: "developer", message: "..." }),
-// this tool spins up the developer's agentic loop synchronously and returns its
-// result as a JSON ToolMessage. The planner then decides whether to call the
-// tester, ask a follow-up, or report back to the user.
-//
-// Tool access by role:
-//   developer — read_file, list_directory, write_file
-//   tester    — read_file, list_directory, write_file, run_command
 
+/**
+ * Creates the `send_message` LangChain tool that the planner uses to delegate
+ * work to sub-agents.
+ *
+ * When the planner calls `send_message({ id: "developer", message: "…" })`,
+ * this tool spins up the corresponding sub-agent's agentic loop via
+ * {@link runSubAgent} and returns the result as a JSON string. The planner
+ * then decides whether to call the tester, ask a follow-up, or report back
+ * to the user.
+ *
+ * **Tool access by role:**
+ * - **developer** — `read_file`, `list_directory`, `write_file`
+ * - **tester** — `read_file`, `list_directory`, `write_file`, `run_command`
+ *
+ * @param developer - LLM instance for the developer sub-agent.
+ * @param tester - LLM instance for the tester sub-agent.
+ * @param onStatus - Callback invoked to update the TUI status bar.
+ * @param onActivity - Optional callback for detailed activity log lines.
+ * @returns A LangChain `DynamicStructuredTool` that the planner can call.
+ */
 function createSendMessageTool(
   developer: ChatAnthropic | ChatOpenAI,
   tester: ChatAnthropic | ChatOpenAI,
   onStatus: (msg: string) => void,
+  onActivity?: (line: string) => void,
 ) {
   const developerTools = [readFileTool, listDirectoryTool, writeFileTool];
   const testerTools = [readFileTool, listDirectoryTool, writeFileTool, runCommandTool];
@@ -140,13 +209,14 @@ function createSendMessageTool(
           message,
           onStatus,
           "Developer",
+          onActivity,
         );
         return JSON.stringify({ id: "coordinator", status: "success", message: result });
       }
 
       if (id === "tester") {
         onStatus("Tester is working...");
-        const result = await runSubAgent(tester, testerTools, createTesterPrompt, message, onStatus, "Tester");
+        const result = await runSubAgent(tester, testerTools, createTesterPrompt, message, onStatus, "Tester", onActivity);
         return JSON.stringify({ id: "coordinator", status: "success", message: result });
       }
 
@@ -168,11 +238,31 @@ function createSendMessageTool(
   );
 }
 
+/**
+ * Props accepted by the root {@link App} component.
+ */
 interface AppProps {
+  /** Resolved application configuration. */
   config: AppConfig;
+  /** Operating mode — `"chat"` for single-model RAG, `"team"` for multi-agent. */
   mode?: "chat" | "team";
 }
 
+/**
+ * Root TUI component rendered by Ink.
+ *
+ * On mount the component initialises the Pinecone vector store and LLM
+ * instance(s), then presents an interactive prompt. In **chat mode** each
+ * query triggers a RAG retrieval followed by a single-shot LLM generation.
+ * In **team mode** the planner orchestrates developer and tester sub-agents
+ * through tool calls.
+ *
+ * Slash commands (`/help`, `/clear`, `/sources`, `/ingest`, `/config`,
+ * `/quit`) are handled locally without invoking the LLM.
+ *
+ * @param props - {@link AppProps}
+ * @returns The Ink element tree for the TUI.
+ */
 export function App({ config, mode = "chat" }: AppProps) {
   const { exit } = useApp();
 
@@ -401,7 +491,10 @@ export function App({ config, mode = "chat" }: AppProps) {
           const planner = llm[0] as ChatAnthropic;
           const developer = llm[1] as ChatAnthropic;
           const tester = llm[2] as ChatAnthropic;
-          const sendMessageTool = createSendMessageTool(developer, tester, setStatusMsg);
+          const writeActivity = (line: string) => {
+            write(chalk.dim(`    ⋮ ${line}`) + "\n");
+          };
+          const sendMessageTool = createSendMessageTool(developer, tester, setStatusMsg, writeActivity);
           const plannerTools: DynamicStructuredTool[] = [readFileTool, listDirectoryTool, sendMessageTool];
           const plannerWithTools = planner.bindTools(plannerTools);
 
@@ -416,11 +509,23 @@ export function App({ config, mode = "chat" }: AppProps) {
           while (true) {
             let accChunk: AIMessageChunk | null = null;
             let iterationText = "";
+            let announcedTools = new Set<string>();
 
             const stream = await plannerWithTools.stream(invokeMessages);
             for await (const chunk of stream) {
               const c = chunk as AIMessageChunk;
               accChunk = accChunk ? (accChunk.concat(c) as AIMessageChunk) : c;
+
+              if (c.tool_call_chunks) {
+                for (const tcc of c.tool_call_chunks) {
+                  if (tcc.name && !announcedTools.has(tcc.index?.toString() ?? tcc.id ?? "")) {
+                    const key = tcc.index?.toString() ?? tcc.id ?? "";
+                    if (key) announcedTools.add(key);
+                    setStatusMsg(`Preparing ${tcc.name}...`);
+                  }
+                }
+              }
+
               const text =
                 typeof c.content === "string"
                   ? c.content

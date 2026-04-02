@@ -1,3 +1,10 @@
+/**
+ * @module commands/ingest
+ *
+ * Defines the `ingest` CLI sub-command, which loads a document from disk,
+ * splits it into chunks, embeds those chunks with OpenAI, and upserts the
+ * resulting vectors into Pinecone.
+ */
 import { Command } from "commander";
 import chalk from "chalk";
 import { existsSync } from "fs";
@@ -6,6 +13,25 @@ import { loadConfig, validateConfig } from "../config.js";
 import { ingestFile } from "../ingest/pipeline.js";
 import type { AppConfig } from "../types.js";
 
+/**
+ * Commander command that ingests a single file into the Pinecone knowledge base.
+ *
+ * @remarks
+ * Accepts a required positional `<path>` argument and two optional flags:
+ * - `--chunk-size <n>` — override the character chunk size (default: 1000).
+ * - `--chunk-overlap <n>` — override the character overlap between chunks
+ *   (default: 200).
+ *
+ * The command resolves the file path, validates the configuration, then
+ * delegates to {@link ingestFile} while streaming progress messages to stdout.
+ * On success it prints a summary; on failure it exits with code `1`.
+ *
+ * @example
+ * ```bash
+ * npx rag-starter ingest ./docs/readme.md
+ * npx rag-starter ingest ./report.pdf --chunk-size 500 --chunk-overlap 50
+ * ```
+ */
 export const ingestCommand = new Command("ingest")
   .description("Ingest a file into the Pinecone knowledge base")
   .argument("<path>", "Path to file (PDF, TXT, or MD)")

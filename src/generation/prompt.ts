@@ -1,8 +1,14 @@
 import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
 
-// MessagesPlaceholder("chat_history") injects prior conversation turns so the
-// model can answer follow-up questions that reference earlier exchanges.
-// Tuple format ["system"|"human", "..."] is required for {variable} substitution.
+/**
+ * Creates a chat prompt template for the RAG (retrieval-augmented generation) chain.
+ *
+ * The prompt injects a system message with a `{context}` variable for retrieved
+ * documents, a `chat_history` placeholder for prior conversation turns, and a
+ * `{input}` slot for the current user question.
+ *
+ * @returns A {@link ChatPromptTemplate} ready to be piped into an LLM chain.
+ */
 export function createChatPrompt() {
   return ChatPromptTemplate.fromMessages([
     ["system", getChatSystemPrompt()],
@@ -11,6 +17,15 @@ export function createChatPrompt() {
   ]);
 }
 
+/**
+ * Creates a prompt template for the coordinator agent in a multi-agent team.
+ *
+ * The prompt defines the coordinator's role, available tools, expected workflow,
+ * and messaging conventions. It includes a `chat_history` placeholder and a
+ * `{input}` slot for the current user message.
+ *
+ * @returns A {@link ChatPromptTemplate} configured for the team coordinator.
+ */
 export function createTeamPrompt() {
   return ChatPromptTemplate.fromMessages([
     ["system", getTeamSystemPrompt()],
@@ -19,6 +34,15 @@ export function createTeamPrompt() {
   ]);
 }
 
+/**
+ * Creates a prompt template for the developer sub-agent.
+ *
+ * The system message instructs the agent to read, implement, and verify code
+ * changes. Unlike the chat/team prompts, this template does **not** include
+ * `chat_history` because each developer task is self-contained.
+ *
+ * @returns A {@link ChatPromptTemplate} configured for the developer agent.
+ */
 export function createDeveloperPrompt() {
   return ChatPromptTemplate.fromMessages([
     ["system", getDeveloperSystemPrompt()],
@@ -26,6 +50,15 @@ export function createDeveloperPrompt() {
   ]);
 }
 
+/**
+ * Creates a prompt template for the tester (QA) sub-agent.
+ *
+ * The system message instructs the agent to write/update tests, run them, and
+ * run typechecks. Like the developer prompt, it omits `chat_history` because
+ * each testing task is self-contained.
+ *
+ * @returns A {@link ChatPromptTemplate} configured for the tester agent.
+ */
 export function createTesterPrompt() {
   return ChatPromptTemplate.fromMessages([
     ["system", getTesterSystemPrompt()],
@@ -33,6 +66,14 @@ export function createTesterPrompt() {
   ]);
 }
 
+/**
+ * Returns the system prompt string for the developer sub-agent.
+ *
+ * The prompt directs the model to read relevant files, implement precise
+ * changes, avoid unrelated refactors, and summarise what was changed.
+ *
+ * @returns The raw system prompt text.
+ */
 function getDeveloperSystemPrompt() {
   return `You are a senior software developer implementing code changes.
 
@@ -46,6 +87,14 @@ Make only the changes needed to complete the task — do not refactor unrelated 
 When you are done, write a concise summary of exactly what you changed and why.`;
 }
 
+/**
+ * Returns the system prompt string for the tester sub-agent.
+ *
+ * The prompt directs the model to read implemented files, write or update
+ * tests, run `pnpm test` and `pnpm exec tsc --noEmit`, and report results.
+ *
+ * @returns The raw system prompt text.
+ */
 function getTesterSystemPrompt() {
   return `You are a QA engineer responsible for verifying code changes and writing tests.
 
@@ -62,7 +111,15 @@ Testing means proving the code works, not confirming it exists.
 - If typechecks surface errors, report them clearly`;
 }
 
-// The system prompt tells the model how to behave and where to ground its answers.
+/**
+ * Returns the system prompt string for the RAG chat chain.
+ *
+ * The prompt grounds the model's answers in a `{context}` block of retrieved
+ * documents and instructs it to avoid fabricating information beyond what the
+ * context provides.
+ *
+ * @returns The raw system prompt text containing a `{context}` placeholder.
+ */
 function getChatSystemPrompt() {
   return `You are a helpful assistant that answers questions based on the provided context.
 
@@ -75,6 +132,15 @@ When your answer draws from the context, you may naturally reference the source 
 {context}`;
 }
 
+/**
+ * Returns the system prompt string for the team coordinator agent.
+ *
+ * This is a long-form prompt that defines the coordinator's role, tool
+ * descriptions, sub-agent messaging protocol, workflow phases (research →
+ * development → testing), and concurrency rules.
+ *
+ * @returns The raw system prompt text.
+ */
 function getTeamSystemPrompt() {
   return `You are an AI assistant that coordinates software engineering tasks between agents.
   

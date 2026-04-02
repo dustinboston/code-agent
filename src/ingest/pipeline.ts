@@ -1,3 +1,14 @@
+/**
+ * Document ingestion pipeline.
+ *
+ * This module orchestrates the full end-to-end flow for ingesting a document:
+ *   1. Load the file from disk into `Document` objects (via `loader.ts`).
+ *   2. Split the documents into overlapping text chunks (via `chunker.ts`).
+ *   3. Embed each chunk using the configured OpenAI embeddings model.
+ *   4. Upsert the resulting vectors into the configured Pinecone index.
+ *   5. Write a local JSON metadata record so the document can be listed
+ *      without querying Pinecone again.
+ */
 import { PineconeStore } from "@langchain/pinecone";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { Pinecone } from "@pinecone-database/pinecone";
@@ -8,6 +19,24 @@ import { loadDocument, detectFormat } from "./loader.js";
 import { createSplitter } from "./chunker.js";
 import type { AppConfig, IngestedDocument } from "../types.js";
 
+/**
+ * Ingests a single document file through the full pipeline.
+ *
+ * Loads the file, validates that it contains extractable text, splits it into
+ * chunks, embeds those chunks via OpenAI, stores the vectors in Pinecone, and
+ * persists a local metadata record for fast listing.
+ *
+ * @param filePath - Path to the document file to ingest (absolute or relative).
+ * @param config - Application configuration supplying chunking parameters,
+ *   Pinecone index name and namespace, embedding model and dimensions, and the
+ *   local storage directory for metadata records.
+ * @param onProgress - Optional callback invoked with a human-readable status
+ *   string at each major stage of the pipeline (loading, splitting, embedding).
+ * @returns A promise that resolves to an `IngestedDocument` metadata record
+ *   describing the file, its format, chunk count, and ingestion timestamp.
+ * @throws {Error} If the file yields no documents, all pages have empty text
+ *   (e.g. a scanned/image-only PDF), or splitting produces no chunks.
+ */
 export async function ingestFile(
   filePath: string,
   config: AppConfig,
@@ -54,9 +83,11 @@ export async function ingestFile(
 
   onProgress?.(`Embedding ${chunks.length} chunks and storing in Pinecone...`);
 
+  // Initialize the Pinecone client and target the configured index for upserts.
   const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
   const index = pinecone.index(config.pinecone.indexName);
 
+  // Configure the OpenAI embeddings model with the project-specified dimensions.
   const embeddings = new OpenAIEmbeddings({
     model: config.embedding.model,
     dimensions: config.embedding.dimensions,

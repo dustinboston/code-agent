@@ -1,15 +1,37 @@
+/**
+ * @module tui/chat
+ *
+ * Presentational component that renders a single chat message inside the Ink
+ * TUI. User, assistant, and system messages each receive distinct visual
+ * treatments (colour, border, label) so they are easy to distinguish in the
+ * terminal scrollback.
+ */
 import React from "react";
 import { Box, Text } from "ink";
 import type { ChatMessage } from "../types.js";
 
+/**
+ * Props accepted by {@link ChatMessageView}.
+ */
 interface ChatMessageViewProps {
+  /** The chat message to render. */
   message: ChatMessage;
+  /** When `true`, shows a "(streaming…)" indicator instead of a timestamp. */
   streaming?: boolean;
 }
 
-// Renders a single chat message. User and assistant messages have distinct
-// colors and labels. System messages (in-app notices like /help output) are
-// rendered in a muted style.
+/**
+ * Renders a single chat message bubble.
+ *
+ * - **User messages** are labelled in cyan with a timestamp.
+ * - **Assistant messages** are labelled in green, optionally showing source
+ *   attributions beneath the body text.
+ * - **System messages** (e.g. `/help` output) are displayed inside a muted
+ *   rounded border.
+ *
+ * @param props - {@link ChatMessageViewProps}
+ * @returns A React element representing the formatted message.
+ */
 export function ChatMessageView({ message, streaming = false }: ChatMessageViewProps) {
   if (message.role === "system") {
     return (
