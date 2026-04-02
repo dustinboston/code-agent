@@ -120,49 +120,53 @@ async function runSubAgent(
     if (toolCalls.length === 0) break; // no tool calls → agent is done
 
     onStatus(`${agentName} using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`);
-    for (const toolCall of toolCalls) {
-      if (onActivity) {
-        const argsSummary = Object.entries(toolCall.args ?? {})
-          .map(([k, v]) => {
-            const s = typeof v === "string" ? v : JSON.stringify(v);
-            return `${k}: ${s.length > 60 ? s.slice(0, 57) + "..." : s}`;
-          })
-          .join(", ");
-        onActivity(`${agentName} → ${toolCall.name}(${argsSummary})`);
-      }
-      const toolFn = agentTools.find((t) => t.name === toolCall.name);
-      let toolMsg: ToolMessage;
-      if (!toolFn) {
-        toolMsg = new ToolMessage({
-          content: `Unknown tool: ${toolCall.name}`,
-          tool_call_id: toolCall.id ?? randomUUID(),
-          name: toolCall.name,
-        });
-      } else {
-        try {
-          toolMsg = (await toolFn.invoke(toolCall)) as ToolMessage;
-        } catch (e) {
-          // Return the error as a ToolMessage so the agent can self-correct
-          // rather than crashing the whole team loop.
-          const errorMsg = `Tool error: ${e instanceof Error ? e.message : String(e)}`;
-          if (onActivity) onActivity(chalk.red(`    ⚠ ${errorMsg.slice(0, 500)}`));
+    const toolMessages = await Promise.all(
+      toolCalls.map(async (toolCall) => {
+        if (onActivity) {
+          const argsSummary = Object.entries(toolCall.args ?? {})
+            .filter(([k]) => !(toolCall.name === "write_file" && k === "content"))
+            .map(([k, v]) => {
+              const s = typeof v === "string" ? v : JSON.stringify(v);
+              return `${k}: ${s.length > 60 ? s.slice(0, 57) + "..." : s}`;
+            })
+            .join(", ");
+          onActivity(`${agentName} → ${toolCall.name}(${argsSummary})`);
+        }
+        const toolFn = agentTools.find((t) => t.name === toolCall.name);
+        let toolMsg: ToolMessage;
+        if (!toolFn) {
           toolMsg = new ToolMessage({
-            content: errorMsg,
+            content: `Unknown tool: ${toolCall.name}`,
             tool_call_id: toolCall.id ?? randomUUID(),
             name: toolCall.name,
           });
+        } else {
+          try {
+            toolMsg = (await toolFn.invoke(toolCall)) as ToolMessage;
+          } catch (e) {
+            // Return the error as a ToolMessage so the agent can self-correct
+            // rather than crashing the whole team loop.
+            const errorMsg = `Tool error: ${e instanceof Error ? e.message : String(e)}`;
+            if (onActivity) onActivity(chalk.red(`    ⚠ ${errorMsg.slice(0, 500)}`));
+            toolMsg = new ToolMessage({
+              content: errorMsg,
+              tool_call_id: toolCall.id ?? randomUUID(),
+              name: toolCall.name,
+            });
+          }
         }
-      }
-      
-      if (
-        typeof toolMsg.content === "string" && 
-        (toolMsg.content.startsWith("Error ") || toolMsg.content.startsWith("Tool error:"))
-      ) {
-        if (onActivity) onActivity(chalk.red(`    ⚠ ${toolMsg.content.slice(0, 150)}`));
-      }
+        
+        if (
+          typeof toolMsg.content === "string" && 
+          (toolMsg.content.startsWith("Error ") || toolMsg.content.startsWith("Tool error:"))
+        ) {
+          if (onActivity) onActivity(chalk.red(`    ⚠ ${toolMsg.content.slice(0, 150)}`));
+        }
 
-      invokeMessages.push(toolMsg);
-    }
+        return toolMsg;
+      })
+    );
+    invokeMessages.push(...toolMessages);
   }
 
   return fullText;
@@ -310,28 +314,36 @@ export function App({ config, mode = "chat" }: AppProps) {
   );
 
   const createTeam = async () => {
-    const store = await createVectorStore(config);
-    const planner = createPlanner(config);
-    const developer = createDeveloper(config);
-    const tester = createTester(config);
+    try {
+      const store = await createVectorStore(config);
+      const planner = await Promise.resolve(createPlanner(config));
+      const developer = await Promise.resolve(createDeveloper(config));
+      const tester = await Promise.resolve(createTester(config));
 
-    const prompt = createTeamPrompt();
-    setVectorStore(store);
-    setLlm([planner, developer, tester]);
-    setRagPrompt(prompt);
-    setAppState("idle");
-    setStatusMsg("");
+      const prompt = createTeamPrompt();
+      setVectorStore(store);
+      setLlm([planner, developer, tester]);
+      setRagPrompt(prompt);
+      setAppState("idle");
+      setStatusMsg("");
+    } catch (err) {
+      throw err;
+    }
   };
 
   const createChat = async () => {
-    const store = await createVectorStore(config);
-    const model = createLLM(config);
-    const prompt = createChatPrompt();
-    setVectorStore(store);
-    setLlm([model]);
-    setRagPrompt(prompt);
-    setAppState("idle");
-    setStatusMsg("");
+    try {
+      const store = await createVectorStore(config);
+      const model = await Promise.resolve(createLLM(config));
+      const prompt = createChatPrompt();
+      setVectorStore(store);
+      setLlm([model]);
+      setRagPrompt(prompt);
+      setAppState("idle");
+      setStatusMsg("");
+    } catch (err) {
+      throw err;
+    }
   };
 
   // ─── Initialization ────────────────────────────────────────────────────────
@@ -340,9 +352,9 @@ export function App({ config, mode = "chat" }: AppProps) {
     async function init() {
       try {
         if (mode === "team") {
-          createTeam();
+          await createTeam();
         } else {
-          createChat();
+          await createChat();
         }
       } catch (err) {
         setErrorMsg(`Initialization failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -375,7 +387,7 @@ export function App({ config, mode = "chat" }: AppProps) {
       timestamp: new Date().toISOString(),
     };
     writeMsg(msg);
-    setCompletedMessages((prev) => [...prev, msg]);
+    setCompletedMessages((prev) => [...prev, msg].slice(-20));
   }, [writeMsg]);
 
   const handleCommand = useCallback(
@@ -476,7 +488,7 @@ export function App({ config, mode = "chat" }: AppProps) {
         timestamp: new Date().toISOString(),
       };
       writeMsg(userMsg);
-      setCompletedMessages((prev) => [...prev, userMsg]);
+      setCompletedMessages((prev) => [...prev, userMsg].slice(-20));
 
       const chatHistory = completedMessages
         .filter((m) => m.role === "user" || m.role === "assistant")
@@ -549,7 +561,7 @@ export function App({ config, mode = "chat" }: AppProps) {
                 timestamp: new Date().toISOString(),
               };
               writeMsg(plannerMsg);
-              setCompletedMessages((prev) => [...prev, plannerMsg]);
+              setCompletedMessages((prev) => [...prev, plannerMsg].slice(-20));
             }
 
             // Convert AIMessageChunk → AIMessage so Anthropic serializes tool_calls correctly
@@ -566,28 +578,31 @@ export function App({ config, mode = "chat" }: AppProps) {
             if (toolCalls.length === 0) break;
 
             setStatusMsg(`Using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`);
-            for (const toolCall of toolCalls) {
-              const toolFn = plannerTools.find((t) => t.name === toolCall.name);
-              let toolMsg: ToolMessage;
-              if (!toolFn) {
-                toolMsg = new ToolMessage({
-                  content: `Unknown tool: ${toolCall.name}`,
-                  tool_call_id: toolCall.id ?? randomUUID(),
-                  name: toolCall.name,
-                });
-              } else {
-                try {
-                  toolMsg = (await toolFn.invoke(toolCall)) as ToolMessage;
-                } catch (e) {
+            const toolMessages = await Promise.all(
+              toolCalls.map(async (toolCall) => {
+                const toolFn = plannerTools.find((t) => t.name === toolCall.name);
+                let toolMsg: ToolMessage;
+                if (!toolFn) {
                   toolMsg = new ToolMessage({
-                    content: `Tool error: ${e instanceof Error ? e.message : String(e)}`,
+                    content: `Unknown tool: ${toolCall.name}`,
                     tool_call_id: toolCall.id ?? randomUUID(),
                     name: toolCall.name,
                   });
+                } else {
+                  try {
+                    toolMsg = (await toolFn.invoke(toolCall)) as ToolMessage;
+                  } catch (e) {
+                    toolMsg = new ToolMessage({
+                      content: `Tool error: ${e instanceof Error ? e.message : String(e)}`,
+                      tool_call_id: toolCall.id ?? randomUUID(),
+                      name: toolCall.name,
+                    });
+                  }
                 }
-              }
-              invokeMessages.push(toolMsg);
-            }
+                return toolMsg;
+              })
+            );
+            invokeMessages.push(...toolMessages);
           }
 
           setAppState("idle");
@@ -657,7 +672,7 @@ export function App({ config, mode = "chat" }: AppProps) {
           timestamp: new Date().toISOString(),
         };
         writeMsg(assistantMsg);
-        setCompletedMessages((prev) => [...prev, assistantMsg]);
+        setCompletedMessages((prev) => [...prev, assistantMsg].slice(-20));
         setLastSources(sources);
         setCurrentSources([]);
         setAppState("idle");

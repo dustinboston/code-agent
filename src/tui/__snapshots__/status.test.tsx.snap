@@ -1,0 +1,7 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`StatusBar > renders 'generating' state with sources count 1`] = `"[32m⠋[39m [2mGenerating response...[22m [2m· 3 sources found[22m"`;
+
+exports[`StatusBar > renders 'initializing' state with a custom message 1`] = `"[32m⠋[39m [2mConnecting to services...[22m"`;
+
+exports[`StatusBar > renders 'retrieving' state with default message 1`] = `"[32m⠋[39m [2mSearching knowledge base...[22m"`;

@@ -31,7 +31,10 @@ import type { AppConfig } from "../types.js";
 // Creates a PineconeStore instance connected to an existing index.
 // Used at chat startup and after in-chat ingestion.
 export async function createVectorStore(config: AppConfig): Promise<PineconeStore> {
-  const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
+  if (!process.env.PINECONE_API_KEY) {
+    throw new Error("PINECONE_API_KEY environment variable is not set.");
+  }
+  const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
   const index = pinecone.index(config.pinecone.indexName);
 
   const embeddings = new OpenAIEmbeddings({

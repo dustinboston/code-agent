@@ -19,6 +19,8 @@ import { loadDocument, detectFormat } from "./loader.js";
 import { createSplitter } from "./chunker.js";
 import type { AppConfig, IngestedDocument } from "../types.js";
 
+let cachedPineconeClient: Pinecone | null = null;
+
 /**
  * Ingests a single document file through the full pipeline.
  *
@@ -84,8 +86,10 @@ export async function ingestFile(
   onProgress?.(`Embedding ${chunks.length} chunks and storing in Pinecone...`);
 
   // Initialize the Pinecone client and target the configured index for upserts.
-  const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
-  const index = pinecone.index(config.pinecone.indexName);
+  if (!cachedPineconeClient) {
+    cachedPineconeClient = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
+  }
+  const index = cachedPineconeClient.index(config.pinecone.indexName);
 
   // Configure the OpenAI embeddings model with the project-specified dimensions.
   const embeddings = new OpenAIEmbeddings({
@@ -93,11 +97,16 @@ export async function ingestFile(
     dimensions: config.embedding.dimensions,
   });
 
-  // fromDocuments embeds each chunk and upserts the vectors into Pinecone
-  await PineconeStore.fromDocuments(taggedChunks, embeddings, {
-    pineconeIndex: index,
-    namespace: config.pinecone.namespace,
-  });
+  // Embed and upsert chunks in batches to prevent API rate limits
+  const batchSize = 100;
+  for (let i = 0; i < taggedChunks.length; i += batchSize) {
+    const batch = taggedChunks.slice(i, i + batchSize);
+    onProgress?.(`Embedding chunks ${i + 1} to ${Math.min(i + batchSize, taggedChunks.length)} of ${taggedChunks.length}...`);
+    await PineconeStore.fromDocuments(batch, embeddings, {
+      pineconeIndex: index,
+      namespace: config.pinecone.namespace,
+    });
+  }
 
   // Persist a local metadata record so `store list` works without hitting Pinecone
   const docRecord: IngestedDocument = {
