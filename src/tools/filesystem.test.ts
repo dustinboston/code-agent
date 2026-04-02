@@ -11,11 +11,24 @@ vi.mock("fs/promises", () => ({
   mkdir: vi.fn(),
 }));
 
-// Mock path module to control resolve behavior
-vi.mock("path", () => ({
-  resolve: vi.fn((p) => p), // Simply return the path as is for testing
-  dirname: vi.fn((p) => p.substring(0, p.lastIndexOf('/')) || '.'),
-}));
+// Mock path module to control resolve behavior but keep real implementations for relative/isAbsolute
+vi.mock("path", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("path")>();
+  return {
+    ...actual,
+    resolve: vi.fn((p) => {
+      // simulate an absolute path resolution for tests that mimic outside paths
+      if (p.includes("..")) return "/outside/path";
+      return p;
+    }),
+    dirname: vi.fn((p) => p.substring(0, p.lastIndexOf('/')) || '.'),
+    relative: vi.fn((from, to) => {
+      if (to === "/outside/path") return "../../outside";
+      return actual.relative(from, to);
+    }),
+    isAbsolute: vi.fn((p) => actual.isAbsolute(p)),
+  };
+});
 
 describe("Filesystem Tools", () => {
   beforeEach(() => {
@@ -42,6 +55,12 @@ describe("Filesystem Tools", () => {
       const result = await readFileTool.call({ path: "protected.txt" });
       expect(readFile).toHaveBeenCalledWith("protected.txt", "utf-8");
       expect(result).toContain("Error reading file: Permission denied");
+    });
+
+    it("should return an error string if path escapes workspace", async () => {
+      const result = await readFileTool.call({ path: "../../etc/passwd" });
+      expect(readFile).not.toHaveBeenCalled();
+      expect(result).toContain("Error: Access denied.");
     });
   });
 

@@ -9,7 +9,17 @@
 import { tool, type DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import { readFile, readdir, writeFile, mkdir } from "fs/promises";
-import { resolve, dirname } from "path";
+import { resolve, dirname, relative, isAbsolute } from "path";
+
+/**
+ * Ensures the resolved path resides within the current working directory.
+ * Prevents path traversal attacks (e.g., passing "../../etc/passwd").
+ */
+function isSafePath(targetPath: string): boolean {
+  const resolved = resolve(targetPath);
+  const rel = relative(process.cwd(), resolved);
+  return !rel.startsWith("..") && !isAbsolute(rel);
+}
 
 /**
  * Reads a file at the given path and returns its full contents as a UTF-8
@@ -21,7 +31,11 @@ import { resolve, dirname } from "path";
 export const readFileTool = tool(
   async ({ path }: { path: string }) => {
     try {
-      return await readFile(resolve(path), "utf-8");
+      const resolved = resolve(path);
+      if (!isSafePath(resolved)) {
+        return `Error: Access denied. Path "${path}" is outside the workspace sandbox.`;
+      }
+      return await readFile(resolved, "utf-8");
     } catch (e) {
       return `Error reading file: ${e instanceof Error ? e.message : String(e)}`;
     }
@@ -44,7 +58,11 @@ export const readFileTool = tool(
 export const listDirectoryTool = tool(
   async ({ path }: { path: string }) => {
     try {
-      const entries = await readdir(resolve(path), { withFileTypes: true });
+      const resolved = resolve(path);
+      if (!isSafePath(resolved)) {
+        return `Error: Access denied. Path "${path}" is outside the workspace sandbox.`;
+      }
+      const entries = await readdir(resolved, { withFileTypes: true });
       return entries.map((e) => `${e.isDirectory() ? "[dir] " : "[file]"} ${e.name}`).join("\n");
     } catch (e) {
       return `Error listing directory: ${e instanceof Error ? e.message : String(e)}`;
@@ -69,6 +87,9 @@ export const writeFileTool = tool(
   async ({ path, content }: { path: string; content: string }) => {
     try {
       const resolved = resolve(path);
+      if (!isSafePath(resolved)) {
+        return `Error: Access denied. Path "${path}" is outside the workspace sandbox.`;
+      }
       await mkdir(dirname(resolved), { recursive: true });
       await writeFile(resolved, content, "utf-8");
       return `File written: ${resolved}`;

@@ -68,11 +68,11 @@ describe("Shell Tools", () => {
       return {} as ChildProcess; // Use imported type
     });
 
-    const result = await runCommandTool.call({ command: "echo hello" });
+    const result = await runCommandTool.call({ command: "pnpm run echo hello" });
 
     expect(mockedExec).toHaveBeenCalledTimes(1);
     const [commandArg, optionsArg, callbackArg] = mockedExec.mock.calls[0];
-    expect(commandArg).toBe("echo hello");
+    expect(commandArg).toBe("pnpm run echo hello");
     // Use non-null assertions as runCommandTool always passes an object for options
     expect(optionsArg!.cwd).toBe(process.cwd());
     expect(optionsArg!.timeout).toBe(30000);
@@ -93,11 +93,11 @@ describe("Shell Tools", () => {
       return {} as ChildProcess;
     });
 
-    const result = await runCommandTool.call({ command: ">&2 echo hello" });
+    const result = await runCommandTool.call({ command: "pnpm test --verbose" });
 
     expect(mockedExec).toHaveBeenCalledTimes(1);
     const [commandArg, optionsArg, callbackArg] = mockedExec.mock.calls[0];
-    expect(commandArg).toBe(">&2 echo hello");
+    expect(commandArg).toBe("pnpm test --verbose");
     expect(optionsArg!.cwd).toBe(process.cwd());
     expect(optionsArg!.timeout).toBe(30000);
     expect(optionsArg!.env!.NODE_OPTIONS).toBeUndefined();
@@ -117,7 +117,7 @@ describe("Shell Tools", () => {
       return {} as ChildProcess;
     });
 
-    const result = await runCommandTool.call({ command: "command" });
+    const result = await runCommandTool.call({ command: "pnpm run command" });
     expect(result).toBe("out\nerr");
   });
 
@@ -133,7 +133,7 @@ describe("Shell Tools", () => {
       return {} as ChildProcess;
     });
 
-    const result = await runCommandTool.call({ command: "true" });
+    const result = await runCommandTool.call({ command: "pnpm run true" });
     expect(result).toBe("(no output)");
   });
 
@@ -154,11 +154,11 @@ describe("Shell Tools", () => {
       return {} as ChildProcess;
     });
 
-    const result = await runCommandTool.call({ command: "false" });
+    const result = await runCommandTool.call({ command: "pnpm test false" });
 
     expect(mockedExec).toHaveBeenCalledTimes(1);
     const [commandArg, optionsArg, callbackArg] = mockedExec.mock.calls[0];
-    expect(commandArg).toBe("false");
+    expect(commandArg).toBe("pnpm test false");
     expect(optionsArg!.cwd).toBe(process.cwd());
     expect(optionsArg!.timeout).toBe(30000);
     expect(optionsArg!.env!.NODE_OPTIONS).toBeUndefined();
@@ -184,7 +184,7 @@ describe("Shell Tools", () => {
       return {} as ChildProcess;
     });
 
-    const result = await runCommandTool.call({ command: "sleep 5" });
+    const result = await runCommandTool.call({ command: "pnpm test sleep" });
     expect(result).toContain("Exit code unknown (or timeout):\nError: Command timed out");
   });
 
@@ -203,11 +203,11 @@ describe("Shell Tools", () => {
       return {} as ChildProcess;
     });
 
-    await runCommandTool.call({ command: "env" });
+    await runCommandTool.call({ command: "pnpm run env" });
 
     expect(mockedExec).toHaveBeenCalledTimes(1);
     const [commandArg, optionsArg, callbackArg] = mockedExec.mock.calls[0];
-    expect(commandArg).toBe("env");
+    expect(commandArg).toBe("pnpm run env");
     expect(optionsArg!.cwd).toBe(process.cwd());
     expect(optionsArg!.timeout).toBe(30000);
     expect(optionsArg!.env!.NODE_OPTIONS).toBeUndefined();
@@ -215,5 +215,11 @@ describe("Shell Tools", () => {
 
     // Clean up the dummy NODE_OPTIONS
     delete process.env.NODE_OPTIONS;
+  });
+
+  it("should block non-allowlisted commands", async () => {
+    const result = await runCommandTool.call({ command: "rm -rf /" });
+    expect(mockedExec).toHaveBeenCalledTimes(0);
+    expect(result).toContain("Error: Security policy blocked execution");
   });
 });
