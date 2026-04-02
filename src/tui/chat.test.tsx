@@ -2,6 +2,7 @@ import React from "react";
 import { render } from "ink-testing-library";
 import { ChatMessageView } from "./chat.js";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import chalk from 'chalk';
 
 describe("ChatMessageView", () => {
   const MOCK_DATE = new Date("2024-01-01T12:00:00.000Z");
@@ -10,6 +11,7 @@ describe("ChatMessageView", () => {
     vi.setSystemTime(MOCK_DATE);
     // Mock toLocaleTimeString to ensure consistent output regardless of locale
     vi.spyOn(Date.prototype, "toLocaleTimeString").mockReturnValue("12:00:00 PM");
+    chalk.level = 0; // Disable chalk colors for consistent snapshot testing
   });
 
   afterEach(() => {

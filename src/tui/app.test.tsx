@@ -3,6 +3,7 @@ import { render } from "ink-testing-library";
 import { App } from "./app.js";
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
 import type { AppConfig } from "../types.js";
+import chalk from 'chalk';
 
 // Define a mock LLM class outside of vi.mock
 class MockLLMInstance {
@@ -68,6 +69,7 @@ describe("App", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    chalk.level = 0; // Disable chalk colors for consistent snapshot testing
   });
 
   afterEach(async () => {

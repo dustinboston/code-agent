@@ -31,9 +31,10 @@ import type { AppConfig } from "../types.js";
  */
 export const chatCommand = new Command("chat")
   .description("Start an interactive chat session")
-  .option("--top-k <n>", "Number of chunks to retrieve per query (default: 5)", parseInt)
+  .option("--top-k <n>", "Number of chunks to retrieve per query (default: 5)", parseInt, undefined) // Added undefined as default
   .option("--model <name>", "Override the Claude model (e.g. claude-opus-4-5)")
   .action((options) => {
+    // console.log('Commander options:', options); // DEBUG LINE REMOVED
     /** CLI-provided overrides to merge into the app config. */
     const overrides: Partial<AppConfig> = {};
 

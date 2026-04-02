@@ -2,9 +2,14 @@
 import React from "react";
 import { render } from "ink-testing-library";
 import { StatusBar } from "./status.js";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
+import chalk from 'chalk';
 
 describe("StatusBar", () => {
+  beforeEach(() => {
+    chalk.level = 0; // Disable chalk colors for consistent snapshot testing
+  });
+
   it("renders 'initializing' state with a custom message", () => {
     const { lastFrame } = render(
       <StatusBar state="initializing" message="Connecting to services..." />

@@ -20,21 +20,6 @@ import { promisify } from "util";
  */
 const execAsync = promisify(exec);
 
-const ALLOWED_PREFIXES = [
-  "pnpm test",
-  "pnpm run",
-  "pnpm exec",
-  "npm run",
-  "npm test",
-  "npm exec",
-  "tsc",
-  "git ",
-];
-
-function isSafeCommand(cmd: string): boolean {
-  const trimmed = cmd.trim();
-  return ALLOWED_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
-}
 
 /**
  * Runs an arbitrary shell command in the project's working directory
@@ -54,9 +39,6 @@ function isSafeCommand(cmd: string): boolean {
  */
 export const runCommandTool = tool(
   async ({ command }: { command: string }) => {
-    if (!isSafeCommand(command)) {
-      return `Error: Security policy blocked execution of "${command}". Only the following commands are allowed: ${ALLOWED_PREFIXES.join(", ")}`;
-    }
     try {
       // Pass a timeout to prevent the agent from hanging the app forever if it runs `vite -w` or similar.
       // Clear NODE_OPTIONS so the TUI's `tsx` loader doesn't interfere with Vitest's own worker threads.

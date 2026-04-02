@@ -1,14 +1,14 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`App > renders in error state 1`] = `
-"[31m✖ Initialization failed: Failed to create LLM[39m
-[2mPress Enter to continue...[22m"
+"✖ Initialization failed: Failed to create LLM
+Press Enter to continue..."
 `;
 
-exports[`App > renders in idle state after initialization (chat mode) 1`] = `"[1m[36mYou:[39m[22m [7mA[27m[90msk a question...  (or /help)[39m"`;
+exports[`App > renders in idle state after initialization (chat mode) 1`] = `"You: Ask a question...  (or /help)"`;
 
 exports[`App > renders in initializing state 1`] = `
 "
- [32m⠋[39m Connecting to Pinecone...
+ ⠋ Connecting to Pinecone...
 "
 `;

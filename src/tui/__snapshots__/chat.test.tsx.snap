@@ -1,26 +1,26 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`ChatMessageView > renders a system message 1`] = `
-"[90m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
-[90m│[39m [2mThis is a system message.[22m                                                                        [90m│[39m
-[90m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m"
+"╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ This is a system message.                                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯"
 `;
 
 exports[`ChatMessageView > renders a user message with timestamp 1`] = `
-"[1m[36mYou[39m[22m [2m[12:00:00 PM][22m
+"You [12:00:00 PM]
   Hello, world!
 "
 `;
 
 exports[`ChatMessageView > renders an assistant message with sources 1`] = `
-"[1m[32mAssistant[39m[22m [2m[12:00:00 PM][22m
+"Assistant [12:00:00 PM]
   Here is some information.
-  [2mSources: doc1.pdf (90%) · webpage.html (75%)[22m
+  Sources: doc1.pdf (90%) · webpage.html (75%)
 "
 `;
 
 exports[`ChatMessageView > renders an assistant message with streaming indicator 1`] = `
-"[1m[32mAssistant[39m[22m [2m(streaming...)[22m
+"Assistant (streaming...)
   Thinking...
 "
 `;

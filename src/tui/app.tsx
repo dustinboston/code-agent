@@ -59,6 +59,7 @@ async function runSubAgent(
   onStatus: (msg: string) => void,
   agentName: string,
   onActivity?: (line: string) => void,
+  requestApproval?: (command: string) => Promise<boolean>,
 ): Promise<string> {
   const agentWithTools = agent.bindTools(agentTools);
   const prompt = promptFn();
@@ -134,6 +135,20 @@ async function runSubAgent(
         }
         const toolFn = agentTools.find((t) => t.name === toolCall.name);
         let toolMsg: ToolMessage;
+
+        if (toolCall.name === "run_command" && requestApproval) {
+          const approved = await requestApproval((toolCall.args as any).command || "");
+          if (!approved) {
+            const deniedMsg = "Error: User denied execution of this command.";
+            if (onActivity) onActivity(chalk.red(`    ⚠ ${deniedMsg}`));
+            return new ToolMessage({
+              content: deniedMsg,
+              tool_call_id: toolCall.id ?? randomUUID(),
+              name: toolCall.name,
+            });
+          }
+        }
+
         if (!toolFn) {
           toolMsg = new ToolMessage({
             content: `Unknown tool: ${toolCall.name}`,
@@ -199,6 +214,7 @@ function createSendMessageTool(
   tester: ChatAnthropic | ChatOpenAI | ChatGoogle,
   onStatus: (msg: string) => void,
   onActivity?: (line: string) => void,
+  requestApproval?: (command: string) => Promise<boolean>,
 ) {
   const developerTools = [readFileTool, listDirectoryTool, writeFileTool];
   const testerTools = [readFileTool, listDirectoryTool, writeFileTool, runCommandTool];
@@ -215,13 +231,14 @@ function createSendMessageTool(
           onStatus,
           "Developer",
           onActivity,
+          requestApproval,
         );
         return JSON.stringify({ id: "coordinator", status: "success", message: result });
       }
 
       if (id === "tester") {
         onStatus("Tester is working...");
-        const result = await runSubAgent(tester, testerTools, createTesterPrompt, message, onStatus, "Tester", onActivity);
+        const result = await runSubAgent(tester, testerTools, createTesterPrompt, message, onStatus, "Tester", onActivity, requestApproval);
         return JSON.stringify({ id: "coordinator", status: "success", message: result });
       }
 
@@ -288,6 +305,15 @@ export function App({ config, mode = "chat" }: AppProps) {
 
   // Text input
   const [input, setInput] = useState("");
+
+  // Command approval queue
+  const [pendingApprovals, setPendingApprovals] = useState<Array<{ command: string; resolve: (approved: boolean) => void }>>([]);
+
+  const requestApproval = useCallback((command: string) => {
+    return new Promise<boolean>((resolve) => {
+      setPendingApprovals((prev) => [...prev, { command, resolve }]);
+    });
+  }, []);
 
   // Write messages directly to stdout above Ink's dynamic area.
   // useStdout().write() is Ink's sanctioned escape hatch — it outputs text
@@ -375,6 +401,24 @@ export function App({ config, mode = "chat" }: AppProps) {
       }
     },
     { isActive: appState === "error" },
+  );
+
+  // Command verification capturing
+  useInput(
+    (inputChars, key) => {
+      if (pendingApprovals.length > 0) {
+        const current = pendingApprovals[0];
+        const lower = inputChars.toLowerCase();
+        if (lower === "y") {
+          current.resolve(true);
+          setPendingApprovals((prev) => prev.slice(1));
+        } else if (lower === "n" || key.return) {
+          current.resolve(false);
+          setPendingApprovals((prev) => prev.slice(1));
+        }
+      }
+    },
+    { isActive: pendingApprovals.length > 0 },
   );
 
   // ─── Slash command handler ─────────────────────────────────────────────────
@@ -507,7 +551,7 @@ export function App({ config, mode = "chat" }: AppProps) {
           const writeActivity = (line: string) => {
             write(chalk.dim(`    ⋮ ${line}`) + "\n");
           };
-          const sendMessageTool = createSendMessageTool(developer, tester, setStatusMsg, writeActivity);
+          const sendMessageTool = createSendMessageTool(developer, tester, setStatusMsg, writeActivity, requestApproval);
           const plannerTools: DynamicStructuredTool[] = [readFileTool, listDirectoryTool, sendMessageTool];
           const plannerWithTools = planner.bindTools(plannerTools);
 
@@ -710,6 +754,12 @@ export function App({ config, mode = "chat" }: AppProps) {
         <Box flexDirection="column" gap={0}>
           <Text color="red">✖ {errorMsg}</Text>
           <Text dimColor>Press Enter to continue...</Text>
+        </Box>
+      ) : pendingApprovals.length > 0 ? (
+        <Box gap={1}>
+          <Text color="yellow">⚠ Agent wants to run:</Text>
+          <Text>{pendingApprovals[0].command}</Text>
+          <Text dimColor>Allow? (y/N)</Text>
         </Box>
       ) : appState === "idle" ? (
         <Box gap={1}>
