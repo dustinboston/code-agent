@@ -29,7 +29,7 @@ function getMessageContents(template: ChatPromptTemplate): string[] {
     .filter((m) => !(m instanceof MessagesPlaceholder))
     .map((m) => {
       // Each non-placeholder entry exposes its template via `.prompt.template`
-      const prompt = (m as { prompt: { template: string } }).prompt;
+      const prompt = (m as any).prompt;
       return prompt.template;
     });
 }

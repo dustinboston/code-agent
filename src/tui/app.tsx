@@ -29,6 +29,7 @@ import { ingestFile } from "../ingest/pipeline.js";
 import { StatusBar, type AppState } from "./status.js";
 import type { AppConfig, ChatMessage, RetrievalResult } from "../types.js";
 import { ChatOpenAI } from "@langchain/openai";
+import type { ChatGoogle } from "@langchain/google";
 
 // ─── Sub-agent runner ──────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ import { ChatOpenAI } from "@langchain/openai";
  * @returns The full concatenated text the agent produced across all iterations.
  */
 async function runSubAgent(
-  agent: ChatAnthropic | ChatOpenAI,
+  agent: ChatAnthropic | ChatOpenAI | ChatGoogle,
   agentTools: typeof filesystemTools,
   promptFn: () => ReturnType<typeof createDeveloperPrompt>,
   message: string,
@@ -190,8 +191,8 @@ async function runSubAgent(
  * @returns A LangChain `DynamicStructuredTool` that the planner can call.
  */
 function createSendMessageTool(
-  developer: ChatAnthropic | ChatOpenAI,
-  tester: ChatAnthropic | ChatOpenAI,
+  developer: ChatAnthropic | ChatOpenAI | ChatGoogle,
+  tester: ChatAnthropic | ChatOpenAI | ChatGoogle,
   onStatus: (msg: string) => void,
   onActivity?: (line: string) => void,
 ) {
@@ -273,7 +274,7 @@ export function App({ config, mode = "chat" }: AppProps) {
 
   // LangChain instances (initialized on mount)
   const [vectorStore, setVectorStore] = useState<PineconeStore | null>(null);
-  const [llm, setLlm] = useState<Array<ChatAnthropic | ChatOpenAI>>([]);
+  const [llm, setLlm] = useState<Array<ChatAnthropic | ChatOpenAI | ChatGoogle>>([]);
   const [ragPrompt, setRagPrompt] = useState<ChatPromptTemplate | null>(null);
 
   // Chat state
@@ -488,9 +489,9 @@ export function App({ config, mode = "chat" }: AppProps) {
 
 
         try {
-          const planner = llm[0] as ChatAnthropic;
-          const developer = llm[1] as ChatAnthropic;
-          const tester = llm[2] as ChatAnthropic;
+          const planner = llm[0] as ChatAnthropic | ChatOpenAI | ChatGoogle;
+          const developer = llm[1] as ChatAnthropic | ChatOpenAI | ChatGoogle;
+          const tester = llm[2] as ChatAnthropic | ChatOpenAI | ChatGoogle;
           const writeActivity = (line: string) => {
             write(chalk.dim(`    ⋮ ${line}`) + "\n");
           };

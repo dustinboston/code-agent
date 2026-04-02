@@ -70,8 +70,9 @@ export interface ChatMessage {
  *
  * - `"anthropic"` — uses the Claude family of models via `@langchain/anthropic`.
  * - `"openai"` — uses GPT models via `@langchain/openai`.
+ * - `"google"` — uses Google models via `@langchain/google`.
  */
-export type Provider = "anthropic" | "openai";
+export type Provider = "anthropic" | "openai" | "google";
 
 /**
  * Canonical configuration shape for the entire application.

@@ -160,6 +160,7 @@ export function validateConfig(config: AppConfig): void {
   const missing: string[] = [];
   if (!process.env.ANTHROPIC_API_KEY) missing.push("ANTHROPIC_API_KEY");
   if (!process.env.OPENAI_API_KEY) missing.push("OPENAI_API_KEY");
+  if (!process.env.GOOGLE_API_KEY) missing.push("GOOGLE_API_KEY");
   if (!process.env.PINECONE_API_KEY) missing.push("PINECONE_API_KEY");
   if (!config.pinecone.indexName) missing.push("PINECONE_INDEX");
 
