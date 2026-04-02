@@ -28,7 +28,7 @@ const DEFAULTS: AppConfig = {
   },
   retrieval: {
     topK: 8,
-    scoreThreshold: 0,  // unused — all top-k results are passed to the LLM
+    scoreThreshold: 0, // unused — all top-k results are passed to the LLM
   },
   storage: {
     dataDir: "./data",
@@ -36,23 +36,23 @@ const DEFAULTS: AppConfig = {
   // Interprets requirements from the user and converts them into stories.
   planner: {
     provider: "anthropic",
-    model: "claude-opus-4-6", // /6/20250514/
+    model: "claude-opus-4-6",
     temperature: 0.7,
-    maxTokens: 2048,    
+    maxTokens: 2048,
   },
   developer: {
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     temperature: 0.3,
-    maxTokens: 2048
+    maxTokens: 2048,
   },
   // Assumes the role of a QA Engineer
   tester: {
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     temperature: 0.3,
-    maxTokens: 2048
-  }
+    maxTokens: 2048,
+  },
 };
 
 function loadFileConfig(): Partial<AppConfig> {
@@ -73,10 +73,7 @@ function deepMerge<T extends object>(...objects: Array<Partial<T>>): T {
     for (const key in obj) {
       const val = obj[key as keyof T];
       if (val !== undefined && val !== null && typeof val === "object" && !Array.isArray(val)) {
-        result[key as keyof T] = deepMerge(
-          ((result[key as keyof T] ?? {}) as object),
-          val as object
-        ) as T[keyof T];
+        result[key as keyof T] = deepMerge((result[key as keyof T] ?? {}) as object, val as object) as T[keyof T];
       } else if (val !== undefined) {
         result[key as keyof T] = val as T[keyof T];
       }

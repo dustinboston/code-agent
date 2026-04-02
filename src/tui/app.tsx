@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Box, Text, useApp, useInput, Static } from "ink";
+import { Box, Text, useApp, useInput, useStdout } from "ink";
 import Spinner from "ink-spinner";
 import TextInput from "ink-text-input";
 import { randomUUID } from "crypto";
+import chalk from "chalk";
 import { HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
 import type { AIMessageChunk, BaseMessage } from "@langchain/core/messages";
 import type { PineconeStore } from "@langchain/pinecone";
@@ -17,7 +18,6 @@ import { createChatPrompt, createDeveloperPrompt, createTesterPrompt, createTeam
 import { filesystemTools, readFileTool, listDirectoryTool, writeFileTool } from "../tools/filesystem.js";
 import { runCommandTool } from "../tools/shell.js";
 import { ingestFile } from "../ingest/pipeline.js";
-import { ChatMessageView } from "./chat.js";
 import { StatusBar, type AppState } from "./status.js";
 import type { AppConfig, ChatMessage, RetrievalResult } from "../types.js";
 import { ChatOpenAI } from "@langchain/openai";
@@ -83,14 +83,27 @@ async function runSubAgent(
     onStatus(`${agentName} using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`);
     for (const toolCall of toolCalls) {
       const toolFn = agentTools.find((t) => t.name === toolCall.name);
-      const toolMsg = toolFn
-        ? await toolFn.invoke(toolCall)
-        : new ToolMessage({
-            content: `Unknown tool: ${toolCall.name}`,
+      let toolMsg: ToolMessage;
+      if (!toolFn) {
+        toolMsg = new ToolMessage({
+          content: `Unknown tool: ${toolCall.name}`,
+          tool_call_id: toolCall.id ?? randomUUID(),
+          name: toolCall.name,
+        });
+      } else {
+        try {
+          toolMsg = (await toolFn.invoke(toolCall)) as ToolMessage;
+        } catch (e) {
+          // Return the error as a ToolMessage so the agent can self-correct
+          // rather than crashing the whole team loop.
+          toolMsg = new ToolMessage({
+            content: `Tool error: ${e instanceof Error ? e.message : String(e)}`,
             tool_call_id: toolCall.id ?? randomUUID(),
             name: toolCall.name,
           });
-      invokeMessages.push(toolMsg as ToolMessage);
+        }
+      }
+      invokeMessages.push(toolMsg);
     }
   }
 
@@ -174,15 +187,36 @@ export function App({ config, mode = "chat" }: AppProps) {
   const [ragPrompt, setRagPrompt] = useState<ChatPromptTemplate | null>(null);
 
   // Chat state
-  // completedMessages feeds into <Static> — they're printed to stdout once
-  // and don't re-render, keeping streaming updates snappy.
   const [completedMessages, setCompletedMessages] = useState<ChatMessage[]>([]);
-  const [streamingText, setStreamingText] = useState("");
   const [currentSources, setCurrentSources] = useState<RetrievalResult[]>([]);
   const [lastSources, setLastSources] = useState<RetrievalResult[]>([]);
 
   // Text input
   const [input, setInput] = useState("");
+
+  // Write messages directly to stdout above Ink's dynamic area.
+  // useStdout().write() is Ink's sanctioned escape hatch — it outputs text
+  // that persists in the terminal scrollback without interfering with Ink's
+  // cursor management of the dynamic render area below.
+  const { write } = useStdout();
+  const writeMsg = useCallback(
+    (msg: ChatMessage) => {
+      if (msg.role === "system") {
+        write(chalk.gray(`  ${msg.content}\n`));
+      } else if (msg.role === "user") {
+        write(chalk.bold.cyan("You") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
+        write(`  ${msg.content}\n\n`);
+      } else {
+        write(chalk.bold.green("Assistant") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
+        write(`  ${msg.content.replace(/\n/g, "\n  ")}\n`);
+        if (msg.sources && msg.sources.length > 0) {
+          write(chalk.dim(`  Sources: ${msg.sources.map((s) => `${s.source} (${(s.score * 100).toFixed(0)}%)`).join(" · ")}\n`));
+        }
+        write("\n");
+      }
+    },
+    [write],
+  );
 
   const createTeam = async () => {
     const store = await createVectorStore(config);
@@ -243,16 +277,15 @@ export function App({ config, mode = "chat" }: AppProps) {
   // ─── Slash command handler ─────────────────────────────────────────────────
 
   const addSystemMsg = useCallback((content: string) => {
-    setCompletedMessages((prev) => [
-      ...prev,
-      {
-        id: randomUUID(),
-        role: "system" as const,
-        content,
-        timestamp: new Date().toISOString(),
-      },
-    ]);
-  }, []);
+    const msg: ChatMessage = {
+      id: randomUUID(),
+      role: "system" as const,
+      content,
+      timestamp: new Date().toISOString(),
+    };
+    writeMsg(msg);
+    setCompletedMessages((prev) => [...prev, msg]);
+  }, [writeMsg]);
 
   const handleCommand = useCallback(
     async (cmd: string) => {
@@ -351,6 +384,7 @@ export function App({ config, mode = "chat" }: AppProps) {
         content: trimmed,
         timestamp: new Date().toISOString(),
       };
+      writeMsg(userMsg);
       setCompletedMessages((prev) => [...prev, userMsg]);
 
       const chatHistory = completedMessages
@@ -361,7 +395,7 @@ export function App({ config, mode = "chat" }: AppProps) {
       if (mode === "team") {
         setAppState("generating");
         setStatusMsg("Thinking...");
-        setStreamingText("");
+
 
         try {
           const planner = llm[0] as ChatAnthropic;
@@ -381,6 +415,7 @@ export function App({ config, mode = "chat" }: AppProps) {
 
           while (true) {
             let accChunk: AIMessageChunk | null = null;
+            let iterationText = "";
 
             const stream = await plannerWithTools.stream(invokeMessages);
             for await (const chunk of stream) {
@@ -392,11 +427,24 @@ export function App({ config, mode = "chat" }: AppProps) {
                   : Array.isArray(c.content)
                     ? c.content.map((p) => (typeof p === "string" ? p : "text" in p ? p.text : "")).join("")
                     : "";
+              iterationText += text;
               fullText += text;
-              setStreamingText(fullText);
             }
 
             if (!accChunk) break;
+
+            // Write planner text from this iteration immediately so the user
+            // can see intermediate planning messages before tool calls execute.
+            if (iterationText.trim()) {
+              const plannerMsg: ChatMessage = {
+                id: randomUUID(),
+                role: "assistant",
+                content: iterationText,
+                timestamp: new Date().toISOString(),
+              };
+              writeMsg(plannerMsg);
+              setCompletedMessages((prev) => [...prev, plannerMsg]);
+            }
 
             // Convert AIMessageChunk → AIMessage so Anthropic serializes tool_calls correctly
             invokeMessages.push(
@@ -414,30 +462,31 @@ export function App({ config, mode = "chat" }: AppProps) {
             setStatusMsg(`Using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`);
             for (const toolCall of toolCalls) {
               const toolFn = plannerTools.find((t) => t.name === toolCall.name);
-              // invoke(ToolCall) returns a ToolMessage directly — push it as-is
-              const toolMsg = toolFn
-                ? await toolFn.invoke(toolCall)
-                : new ToolMessage({
-                    content: `Unknown tool: ${toolCall.name}`,
+              let toolMsg: ToolMessage;
+              if (!toolFn) {
+                toolMsg = new ToolMessage({
+                  content: `Unknown tool: ${toolCall.name}`,
+                  tool_call_id: toolCall.id ?? randomUUID(),
+                  name: toolCall.name,
+                });
+              } else {
+                try {
+                  toolMsg = (await toolFn.invoke(toolCall)) as ToolMessage;
+                } catch (e) {
+                  toolMsg = new ToolMessage({
+                    content: `Tool error: ${e instanceof Error ? e.message : String(e)}`,
                     tool_call_id: toolCall.id ?? randomUUID(),
                     name: toolCall.name,
                   });
-              invokeMessages.push(toolMsg as ToolMessage);
+                }
+              }
+              invokeMessages.push(toolMsg);
             }
           }
 
-          const assistantMsg: ChatMessage = {
-            id: randomUUID(),
-            role: "assistant",
-            content: fullText,
-            timestamp: new Date().toISOString(),
-          };
-          setCompletedMessages((prev) => [...prev, assistantMsg]);
-          setStreamingText("");
           setAppState("idle");
           setStatusMsg("");
         } catch (err) {
-          setStreamingText("");
           setErrorMsg(`Generation failed: ${err instanceof Error ? err.message : String(err)}`);
           setAppState("error");
         }
@@ -467,7 +516,6 @@ export function App({ config, mode = "chat" }: AppProps) {
       // 3. Stream the LLM response
       setAppState("generating");
       setStatusMsg("Generating response...");
-      setStreamingText("");
 
       try {
         // Build LangChain chat history from completed messages.
@@ -491,11 +539,10 @@ export function App({ config, mode = "chat" }: AppProps) {
                   ? chunk.content.map((c) => (typeof c === "string" ? c : "text" in c ? c.text : "")).join("")
                   : "";
             fullText += text;
-            setStreamingText(fullText);
           }
         }
 
-        // 4. Move the completed response into Static
+        // 4. Write the completed response to stdout
         const assistantMsg: ChatMessage = {
           id: randomUUID(),
           role: "assistant",
@@ -503,20 +550,19 @@ export function App({ config, mode = "chat" }: AppProps) {
           sources,
           timestamp: new Date().toISOString(),
         };
+        writeMsg(assistantMsg);
         setCompletedMessages((prev) => [...prev, assistantMsg]);
         setLastSources(sources);
-        setStreamingText("");
         setCurrentSources([]);
         setAppState("idle");
         setStatusMsg("");
       } catch (err) {
-        setStreamingText("");
         setCurrentSources([]);
         setErrorMsg(`Generation failed: ${err instanceof Error ? err.message : String(err)}`);
         setAppState("error");
       }
     },
-    [appState, mode, vectorStore, llm, ragPrompt, config, completedMessages, handleCommand],
+    [appState, mode, vectorStore, llm, ragPrompt, config, completedMessages, handleCommand, writeMsg],
   );
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -535,27 +581,6 @@ export function App({ config, mode = "chat" }: AppProps) {
 
   return (
     <Box flexDirection="column">
-      {/* ── Completed messages ─────────────────────────────────────────────
-          Static renders each item once and prints it to stdout. New items
-          are appended; existing items are never re-rendered. This keeps
-          Ink's dynamic render area small (just the current status + input),
-          so streaming updates don't flicker older messages.
-      ─────────────────────────────────────────────────────────────────── */}
-      <Static items={completedMessages}>{(msg) => <ChatMessageView key={msg.id} message={msg} />}</Static>
-
-      {/* ── Currently streaming response ──────────────────────────────── */}
-      {streamingText.length > 0 && (
-        <ChatMessageView
-          message={{
-            id: "streaming",
-            role: "assistant",
-            content: streamingText,
-            timestamp: "",
-          }}
-          streaming
-        />
-      )}
-
       {/* ── Status bar ────────────────────────────────────────────────── */}
       <StatusBar state={appState} message={statusMsg} sourcesCount={currentSources.length} />
 

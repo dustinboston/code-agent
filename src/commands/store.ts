@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync, unlinkSync } from "fs";
 import { resolve, join } from "path";
 import { loadConfig } from "../config.js";
 import type { IngestedDocument } from "../types.js";
+import { Pinecone } from "@pinecone-database/pinecone";
 
 const listCommand = new Command("list")
   .description("List documents that have been ingested")
@@ -40,8 +41,8 @@ const listCommand = new Command("list")
   });
 
 const clearCommand = new Command("clear")
-  .description("Remove local document records (does NOT delete Pinecone vectors)")
-  .action(() => {
+  .description("Clear all ingested documents and their Pinecone vectors")
+  .action(async () => {
     const config = loadConfig();
     const docsDir = resolve(config.storage.dataDir, "documents");
 
@@ -57,15 +58,41 @@ const clearCommand = new Command("clear")
       return;
     }
 
+    // Delete Pinecone vectors before removing local files
+    let pineconeCleared = false;
+    try {
+      const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
+      const index = pinecone.index(config.pinecone.indexName);
+
+      if (config.pinecone.namespace) {
+        await index.namespace(config.pinecone.namespace).deleteAll();
+      } else {
+        await index.deleteAll();
+      }
+
+      pineconeCleared = true;
+    } catch (err) {
+      console.warn(
+        chalk.yellow(
+          `\n  Warning: Pinecone vectors could not be deleted: ${(err as Error).message}`
+        )
+      );
+    }
+
+    // Delete local document records
     for (const file of files) {
       unlinkSync(join(docsDir, file));
     }
 
-    console.log(
-      `\n  ${chalk.green("✔")} Cleared ${files.length} document record${files.length !== 1 ? "s" : ""}.\n` +
-        `  ${chalk.yellow("Note:")} Pinecone vectors were not deleted.\n` +
-        `  To clear vectors, use the Pinecone dashboard or API.\n`
-    );
+    if (pineconeCleared) {
+      console.log(
+        `\n  ${chalk.green("✔")} Cleared ${files.length} document record${files.length !== 1 ? "s" : ""} and removed vectors from Pinecone.\n`
+      );
+    } else {
+      console.log(
+        `\n  ${chalk.green("✔")} Cleared ${files.length} local document record${files.length !== 1 ? "s" : ""}.\n`
+      );
+    }
   });
 
 export const storeCommand = new Command("store")
