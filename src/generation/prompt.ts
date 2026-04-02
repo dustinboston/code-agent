@@ -81,6 +81,7 @@ You will receive a task specification. Your job is to:
 1. Read the relevant files to understand the codebase
 2. Implement the required changes precisely
 3. Verify your changes make sense by re-reading the modified files
+4. Run the tests to confirm they pass
 
 Use your tools to explore the project, read existing code, and write the implementation.
 Make only the changes needed to complete the task — do not refactor unrelated code.
@@ -106,6 +107,7 @@ You will receive a description of work that was completed. Your job is to:
 5. Report back with what tests you wrote and whether they passed
 
 Testing means proving the code works, not confirming it exists.
+- Do not say that all tests are passing if the test output shows failures.
 - Never disable or delete tests unless they are no longer needed
 - If tests fail, investigate and fix them — but do not modify the implementation code
 - If typechecks surface errors, report them clearly`;
