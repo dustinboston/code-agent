@@ -40,6 +40,7 @@ const DEFAULTS: AppConfig = {
     strategy: "recursive",
     chunkSize: 1000,
     chunkOverlap: 200,
+    batchSize: 50,
   },
   retrieval: {
     topK: 8,
@@ -91,40 +92,14 @@ function loadFileConfig(): Partial<AppConfig> {
 }
 
 /**
- * Recursively merges two or more partial objects into a single object.
- *
- * Plain objects are merged depth-first so that nested keys from later
- * arguments override only the specific sub-keys they define, rather than
- * replacing the entire nested object. Arrays and primitive values are
- * replaced wholesale. `undefined` values are skipped so that absent CLI
- * flags do not clobber file or default values.
- *
- * @param objects - One or more partial objects to merge, in ascending
- *   priority order (rightmost wins).
- * @returns A new object containing the deep-merged result.
- */
-// Deep merge: later objects override earlier ones. Skips undefined values.
-function deepMerge<T extends object>(...objects: Array<Partial<T>>): T {
-  const result = {} as T;
-  for (const obj of objects) {
-    for (const key in obj) {
-      const val = obj[key as keyof T];
-      if (val !== undefined && val !== null && typeof val === "object" && !Array.isArray(val)) {
-        result[key as keyof T] = deepMerge((result[key as keyof T] ?? {}) as object, val as object) as T[keyof T];
-      } else if (val !== undefined) {
-        result[key as keyof T] = val as T[keyof T];
-      }
-    }
-  }
-  return result;
-}
-
-/**
  * Resolves the application configuration by merging all config sources.
  *
  * Sources are applied in the following priority order (lowest → highest):
  * built-in defaults → `code-agent.config.json` → environment variables →
  * the `overrides` argument.
+ *
+ * Each top-level section is merged with a shallow `Object.assign` — the
+ * config shape has no deeply-nested keys that require recursive merging.
  *
  * @param overrides - Optional partial config supplied by CLI flags or tests.
  *   Any keys provided here take precedence over all other sources.
@@ -134,15 +109,20 @@ function deepMerge<T extends object>(...objects: Array<Partial<T>>): T {
 // Resolve config: defaults → config file → env vars → CLI overrides
 export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const fileConfig = loadFileConfig();
+  const merge = <T extends object>(base: T, ...layers: Array<Partial<T> | undefined>): T =>
+    Object.assign({}, base, ...layers);
 
-  // Re-read PINECONE_INDEX from env in case dotenv just loaded it
-  const envConfig: Partial<AppConfig> = {
-    pinecone: {
-      indexName: process.env.PINECONE_INDEX ?? DEFAULTS.pinecone.indexName,
-    },
+  return {
+    llm:       merge(DEFAULTS.llm,       fileConfig.llm,       overrides.llm),
+    embedding: merge(DEFAULTS.embedding, fileConfig.embedding, overrides.embedding),
+    pinecone:  merge(DEFAULTS.pinecone,  fileConfig.pinecone,  { indexName: process.env.PINECONE_INDEX ?? DEFAULTS.pinecone.indexName }, overrides.pinecone),
+    chunking:  merge(DEFAULTS.chunking,  fileConfig.chunking,  overrides.chunking),
+    retrieval: merge(DEFAULTS.retrieval, fileConfig.retrieval, overrides.retrieval),
+    storage:   merge(DEFAULTS.storage,   fileConfig.storage,   overrides.storage),
+    planner:   merge(DEFAULTS.planner,   fileConfig.planner,   overrides.planner),
+    developer: merge(DEFAULTS.developer, fileConfig.developer, overrides.developer),
+    tester:    merge(DEFAULTS.tester,    fileConfig.tester,    overrides.tester),
   };
-
-  return deepMerge(DEFAULTS, fileConfig, envConfig, overrides);
 }
 
 /**

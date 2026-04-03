@@ -67,11 +67,8 @@ export async function retrieve(
     score,
   }));
 
-  const context = results
-    .map(([doc, score], i) => {
-      const src = (doc.metadata.source as string | undefined) ?? "unknown";
-      return `[Source ${i + 1}: ${src} — relevance: ${(score * 100).toFixed(0)}%]\n${doc.pageContent}`;
-    })
+  const context = sources
+    .map((s, i) => `[Source ${i + 1}: ${s.source} — relevance: ${(s.score * 100).toFixed(0)}%]\n${s.content}`)
     .join("\n\n---\n\n");
 
   return { context, sources };

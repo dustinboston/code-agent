@@ -180,6 +180,12 @@ export interface AppConfig {
     chunkSize: number;
     /** Number of characters to overlap between consecutive chunks. */
     chunkOverlap: number;
+    /**
+     * Number of chunks to embed and upsert per Pinecone batch.
+     * Smaller values reduce the risk of hitting OpenAI rate limits on large
+     * documents. Defaults to 50.
+     */
+    batchSize: number;
   };
   /**
    * Retrieval settings applied when searching Pinecone at query time.

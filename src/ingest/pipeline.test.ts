@@ -72,7 +72,7 @@ describe("ingestFile", () => {
     tester: { provider: "openai", model: "gpt-4", temperature: 0.7, maxTokens: 1000 },
     embedding: { provider: "openai", model: "text-embedding-ada-002", dimensions: 1536 },
     pinecone: { indexName: "test-index", namespace: "test-namespace" },
-    chunking: { strategy: "recursive", chunkSize: 1000, chunkOverlap: 200 },
+    chunking: { strategy: "recursive", chunkSize: 1000, chunkOverlap: 200, batchSize: 50 },
     retrieval: { topK: 5, scoreThreshold: 0.8 },
     storage: { dataDir: "./data" },
   };

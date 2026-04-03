@@ -19,7 +19,33 @@ import { loadDocument, detectFormat } from "./loader.js";
 import { createSplitter } from "./chunker.js";
 import type { AppConfig, IngestedDocument } from "../types.js";
 
-let cachedPineconeClient: Pinecone | null = null;
+/**
+ * Retries an async operation on rate-limit errors (HTTP 429) using
+ * exponential backoff. All other errors are re-thrown immediately.
+ *
+ * @param fn - The async operation to attempt.
+ * @param maxRetries - Maximum number of retry attempts (default 5).
+ * @returns The resolved value of `fn` on success.
+ * @throws The original error after all retries are exhausted, or immediately
+ *   for non-rate-limit errors.
+ */
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 5): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isRateLimit =
+        err instanceof Error &&
+        (err.message.includes("429") ||
+          err.message.toLowerCase().includes("rate limit") ||
+          (err as { status?: number }).status === 429);
+      if (!isRateLimit || attempt === maxRetries) throw err;
+      await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** attempt, 32000)));
+    }
+  }
+  // unreachable — loop always throws or returns
+  throw new Error("Retry loop exited unexpectedly");
+}
 
 /**
  * Ingests a single document file through the full pipeline.
@@ -73,12 +99,13 @@ export async function ingestFile(
   }
 
   // Tag each chunk with source metadata so we can show it in the chat UI
+  const format = detectFormat(filePath);
   const taggedChunks = chunks.map((chunk, i) => ({
     ...chunk,
     metadata: {
       ...chunk.metadata,
       source: filePath,
-      format: detectFormat(filePath),
+      format,
       chunkIndex: i,
     },
   }));
@@ -86,10 +113,8 @@ export async function ingestFile(
   onProgress?.(`Embedding ${chunks.length} chunks and storing in Pinecone...`);
 
   // Initialize the Pinecone client and target the configured index for upserts.
-  if (!cachedPineconeClient) {
-    cachedPineconeClient = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
-  }
-  const index = cachedPineconeClient.index(config.pinecone.indexName);
+  const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
+  const index = pinecone.index(config.pinecone.indexName);
 
   // Configure the OpenAI embeddings model with the project-specified dimensions.
   const embeddings = new OpenAIEmbeddings({
@@ -97,22 +122,24 @@ export async function ingestFile(
     dimensions: config.embedding.dimensions,
   });
 
-  // Embed and upsert chunks in batches to prevent API rate limits
-  const batchSize = 100;
+  // Embed and upsert chunks in batches, retrying on rate-limit errors.
+  const batchSize = config.chunking.batchSize;
   for (let i = 0; i < taggedChunks.length; i += batchSize) {
     const batch = taggedChunks.slice(i, i + batchSize);
     onProgress?.(`Embedding chunks ${i + 1} to ${Math.min(i + batchSize, taggedChunks.length)} of ${taggedChunks.length}...`);
-    await PineconeStore.fromDocuments(batch, embeddings, {
-      pineconeIndex: index,
-      namespace: config.pinecone.namespace,
-    });
+    await withRetry(() =>
+      PineconeStore.fromDocuments(batch, embeddings, {
+        pineconeIndex: index,
+        namespace: config.pinecone.namespace,
+      })
+    );
   }
 
   // Persist a local metadata record so `store list` works without hitting Pinecone
   const docRecord: IngestedDocument = {
     id: randomUUID(),
     source: resolve(filePath),
-    format: detectFormat(filePath),
+    format,
     chunkCount: chunks.length,
     ingestedAt: new Date().toISOString(),
   };

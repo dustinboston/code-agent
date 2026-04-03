@@ -8,7 +8,8 @@
  */
 import { Command } from "commander";
 import chalk from "chalk";
-import { existsSync, readdirSync, readFileSync, unlinkSync } from "fs";
+import { existsSync, readdirSync, unlinkSync } from "fs";
+import { readFile } from "fs/promises";
 import { resolve, join } from "path";
 import { loadConfig } from "../config.js";
 import type { IngestedDocument } from "../types.js";
@@ -30,7 +31,7 @@ import { Pinecone } from "@pinecone-database/pinecone";
  */
 const listCommand = new Command("list")
   .description("List documents that have been ingested")
-  .action(() => {
+  .action(async () => {
     const config = loadConfig();
     const docsDir = resolve(config.storage.dataDir, "documents");
 
@@ -48,11 +49,11 @@ const listCommand = new Command("list")
 
     console.log(chalk.bold(`\n${files.length} document${files.length !== 1 ? "s" : ""} in registry:\n`));
 
-    for (const file of files) {
-      const doc = JSON.parse(
-        readFileSync(join(docsDir, file), "utf-8")
-      ) as IngestedDocument;
+    const docs = await Promise.all(
+      files.map(async (file) => JSON.parse(await readFile(join(docsDir, file), "utf-8")) as IngestedDocument)
+    );
 
+    for (const doc of docs) {
       console.log(`  ${chalk.cyan(doc.source)}`);
       console.log(
         `    ${doc.chunkCount} chunks · ${doc.format.toUpperCase()} · ` +

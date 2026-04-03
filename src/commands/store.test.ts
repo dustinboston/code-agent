@@ -1,13 +1,15 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { storeCommand } from './store';
-import { existsSync, readdirSync, readFileSync, unlinkSync } from 'fs'; // Import specific functions
+import { existsSync, readdirSync, unlinkSync } from 'fs';
+import { readFile } from 'fs/promises';
 import * as config from '../config';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { resolve, join } from 'path';
 
-// Mock the entire fs module
+// Mock the entire fs and fs/promises modules
 vi.mock('fs');
+vi.mock('fs/promises');
 
 // Mock config module
 vi.mock('../config', () => ({
@@ -43,7 +45,7 @@ describe('storeCommand', () => {
     // Reset and mock implementations for fs functions
     vi.mocked(existsSync).mockReset();
     vi.mocked(readdirSync).mockReset();
-    vi.mocked(readFileSync).mockReset();
+    vi.mocked(readFile).mockReset();
     vi.mocked(unlinkSync).mockReset();
 
     // Mock loadConfig to return a consistent config
@@ -86,19 +88,19 @@ describe('storeCommand', () => {
     it('should list ingested documents with their details', async () => {
       vi.mocked(existsSync).mockReturnValue(true);
       vi.mocked(readdirSync).mockReturnValue(['doc1.json', 'doc2.json'] as any);
-      vi.mocked(readFileSync)
-        .mockReturnValueOnce(JSON.stringify({
+      vi.mocked(readFile)
+        .mockResolvedValueOnce(JSON.stringify({
           source: 'path/to/doc1.txt',
           chunkCount: 5,
           format: 'txt',
           ingestedAt: new Date().toISOString(),
-        }))
-        .mockReturnValueOnce(JSON.stringify({
+        }) as any)
+        .mockResolvedValueOnce(JSON.stringify({
           source: 'path/to/doc2.pdf',
           chunkCount: 10,
           format: 'pdf',
           ingestedAt: new Date().toISOString(),
-        }));
+        }) as any);
 
       await storeCommand.parseAsync(['node', 'test', 'list']);
 
@@ -107,8 +109,8 @@ describe('storeCommand', () => {
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('5 chunks · TXT'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('path/to/doc2.pdf'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('10 chunks · PDF'));
-      expect(vi.mocked(readFileSync)).toHaveBeenCalledWith(join(mockDocsDir, 'doc1.json'), 'utf-8');
-      expect(vi.mocked(readFileSync)).toHaveBeenCalledWith(join(mockDocsDir, 'doc2.json'), 'utf-8');
+      expect(vi.mocked(readFile)).toHaveBeenCalledWith(join(mockDocsDir, 'doc1.json'), 'utf-8');
+      expect(vi.mocked(readFile)).toHaveBeenCalledWith(join(mockDocsDir, 'doc2.json'), 'utf-8');
     });
   });
 

@@ -359,9 +359,9 @@ export function App({ config, mode = "chat" }: AppProps) {
   const createTeam = async () => {
     try {
       const store = await createVectorStore(config);
-      const planner = await Promise.resolve(createPlanner(config));
-      const developer = await Promise.resolve(createDeveloper(config));
-      const tester = await Promise.resolve(createTester(config));
+      const planner = createPlanner(config);
+      const developer = createDeveloper(config);
+      const tester = createTester(config);
 
       const prompt = createTeamPrompt();
       setVectorStore(store);
@@ -382,7 +382,7 @@ export function App({ config, mode = "chat" }: AppProps) {
   const createChat = async () => {
     try {
       const store = await createVectorStore(config);
-      const model = await Promise.resolve(createLLM(config));
+      const model = createLLM(config);
       const prompt = createChatPrompt();
       setVectorStore(store);
       setLlm([model]);
@@ -524,9 +524,6 @@ export function App({ config, mode = "chat" }: AppProps) {
           setStatusMsg(`Ingesting ${filePath}...`);
           try {
             const result = await ingestFile(filePath, config, (msg) => setStatusMsg(msg));
-            // Refresh the vector store so new docs are immediately searchable
-            const newStore = await createVectorStore(config);
-            setVectorStore(newStore);
             addSystemMsg(`Ingested: ${result.source}\n${result.chunkCount} chunks stored in Pinecone.`);
           } catch (err) {
             addSystemMsg(`Ingest failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -731,18 +728,15 @@ export function App({ config, mode = "chat" }: AppProps) {
         });
 
         let fullText = "";
-        for (const x of llm) {
-          const stream = await x!.stream(promptMessages);
-
-          for await (const chunk of stream) {
-            const text =
-              typeof chunk.content === "string"
-                ? chunk.content
-                : Array.isArray(chunk.content)
-                  ? chunk.content.map((c) => (typeof c === "string" ? c : "text" in c ? c.text : "")).join("")
-                  : "";
-            fullText += text;
-          }
+        const stream = await llm[0]!.stream(promptMessages);
+        for await (const chunk of stream) {
+          const text =
+            typeof chunk.content === "string"
+              ? chunk.content
+              : Array.isArray(chunk.content)
+                ? chunk.content.map((c) => (typeof c === "string" ? c : "text" in c ? c.text : "")).join("")
+                : "";
+          fullText += text;
         }
 
         // 4. Write the completed response to stdout
