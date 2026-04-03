@@ -1,6 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import {
-  createLLM,
   createPlanner,
   createDeveloper,
   createTester,
@@ -77,48 +76,6 @@ describe("LLM Factory Functions", () => {
     MockChatAnthropic.mockClear();
     MockChatOpenAI.mockClear();
     MockChatGoogle.mockClear();
-  });
-
-  it("createLLM should instantiate ChatAnthropic with correct options for anthropic provider", () => {
-    const config = { ...mockConfig, llm: { ...mockConfig.llm, provider: "anthropic" as Provider } };
-    createLLM(config);
-    expect(MockChatAnthropic).toHaveBeenCalledTimes(1);
-    expect(MockChatAnthropic).toHaveBeenCalledWith({
-      model: config.llm.model,
-      temperature: config.llm.temperature,
-      maxTokens: config.llm.maxTokens,
-      streaming: true,
-    });
-    expect(MockChatOpenAI).not.toHaveBeenCalled();
-    expect(MockChatGoogle).not.toHaveBeenCalled();
-  });
-
-  it("createLLM should instantiate ChatOpenAI with correct options for openai provider", () => {
-    const config = { ...mockConfig, llm: { ...mockConfig.llm, provider: "openai" as Provider } };
-    createLLM(config);
-    expect(MockChatOpenAI).toHaveBeenCalledTimes(1);
-    expect(MockChatOpenAI).toHaveBeenCalledWith({
-      model: config.llm.model,
-      temperature: config.llm.temperature,
-      maxTokens: config.llm.maxTokens,
-      streaming: true,
-    });
-    expect(MockChatAnthropic).not.toHaveBeenCalled();
-    expect(MockChatGoogle).not.toHaveBeenCalled();
-  });
-
-  it("createLLM should instantiate ChatGoogle with correct options for google provider", () => {
-    const config = { ...mockConfig, llm: { ...mockConfig.llm, provider: "google" as Provider } };
-    createLLM(config);
-    expect(MockChatGoogle).toHaveBeenCalledTimes(1);
-    expect(MockChatGoogle).toHaveBeenCalledWith({
-      model: config.llm.model,
-      temperature: config.llm.temperature,
-      maxTokens: config.llm.maxTokens,
-      streaming: true,
-    });
-    expect(MockChatAnthropic).not.toHaveBeenCalled();
-    expect(MockChatOpenAI).not.toHaveBeenCalled();
   });
 
   it("createPlanner should instantiate ChatOpenAI with correct options", () => {

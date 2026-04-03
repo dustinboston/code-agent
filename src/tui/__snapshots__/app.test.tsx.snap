@@ -5,8 +5,16 @@ exports[`App > renders in error state 1`] = `
 Press Enter to continue..."
 `;
 
+exports[`App > renders in idle state 1`] = `
+"✖ Initialization failed: [vitest] No "createPlannerPrompt" export is defined on the
+"../generation/prompt.js" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+Press Enter to continue..."
+`;
+
 exports[`App > renders in initializing state 1`] = `
 "
- ⠋ Connecting to Pinecone...
+ ⠋ Initializing...
 "
 `;

@@ -51,7 +51,6 @@ vi.mock("../generation/llm.js", () => ({
 }));
 
 vi.mock("../generation/prompt.js", () => ({
-  createChatPrompt: vi.fn(() => ({ formatMessages: vi.fn(() => []) })),
   createTeamPrompt: vi.fn(() => ({ formatMessages: vi.fn(() => []) })),
   createDeveloperPrompt: vi.fn(() => ({ formatMessages: vi.fn(() => []) })),
   createTesterPrompt: vi.fn(() => ({ formatMessages: vi.fn(() => []) })),
@@ -147,6 +146,16 @@ describe("App", () => {
     await vi.runAllTimersAsync();
 
     // The component should transition to error state and display the error message
+    expect(lastFrame()).toMatchSnapshot();
+  });
+
+  it("renders in idle state", async () => {
+    const { lastFrame } = render(<App config={mockConfig} />);
+
+    // Advance timers to allow the app to transition from 'initializing' to 'idle'
+    await vi.runAllTimersAsync();
+    await new Promise(process.nextTick); // Ensure all microtasks are flushed
+
     expect(lastFrame()).toMatchSnapshot();
   });
 });

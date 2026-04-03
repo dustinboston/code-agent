@@ -1,23 +1,6 @@
 import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
 
 /**
- * Creates a chat prompt template for the RAG (retrieval-augmented generation) chain.
- *
- * The prompt injects a system message with a `{context}` variable for retrieved
- * documents, a `chat_history` placeholder for prior conversation turns, and a
- * `{input}` slot for the current user question.
- *
- * @returns A {@link ChatPromptTemplate} ready to be piped into an LLM chain.
- */
-export function createChatPrompt() {
-  return ChatPromptTemplate.fromMessages([
-    ["system", getChatSystemPrompt()],
-    new MessagesPlaceholder("chat_history"),
-    ["human", "{input}"],
-  ]);
-}
-
-/**
  * Creates a prompt template for the coordinator agent in a multi-agent team.
  *
  * The prompt defines the coordinator's role, available tools, expected workflow,
@@ -26,9 +9,9 @@ export function createChatPrompt() {
  *
  * @returns A {@link ChatPromptTemplate} configured for the team coordinator.
  */
-export function createTeamPrompt() {
+export function createPlannerPrompt() {
   return ChatPromptTemplate.fromMessages([
-    ["system", getTeamSystemPrompt()],
+    ["system", getPlannerSystemPrompt()],
     new MessagesPlaceholder("chat_history"),
     ["human", "{input}"],
   ]);
@@ -114,27 +97,6 @@ Testing means proving the code works, not confirming it exists.
 }
 
 /**
- * Returns the system prompt string for the RAG chat chain.
- *
- * The prompt grounds the model's answers in a `{context}` block of retrieved
- * documents and instructs it to avoid fabricating information beyond what the
- * context provides.
- *
- * @returns The raw system prompt text containing a `{context}` placeholder.
- */
-function getChatSystemPrompt() {
-  return `You are a helpful assistant that answers questions based on the provided context.
-
-Answer the user's question using the context below. If the context doesn't contain enough information to answer confidently, say so clearly — do not invent or infer beyond what's provided.
-
-When your answer draws from the context, you may naturally reference the source (e.g. "According to the document...").
-
-## Context
-
-{context}`;
-}
-
-/**
  * Returns the system prompt string for the team coordinator agent.
  *
  * This is a long-form prompt that defines the coordinator's role, tool
@@ -143,7 +105,7 @@ When your answer draws from the context, you may naturally reference the source 
  *
  * @returns The raw system prompt text.
  */
-function getTeamSystemPrompt() {
+function getPlannerSystemPrompt() {
   return `You are an AI assistant that coordinates software engineering tasks between agents.
   
 ## 1. Your Role

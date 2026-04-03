@@ -48,6 +48,7 @@ export function App({ config }: AppProps) {
   } = useAppController({ config });
 
   // Full-screen spinner during init — nothing else to show yet
+  // TODO: This isn't showing. Perhaps it's being blocked by the useAppController hook?
   if (appState === "initializing") {
     return (
       <Box gap={1} padding={1}>
@@ -67,7 +68,7 @@ export function App({ config }: AppProps) {
       {/* ── Input area ────────────────────────────────────────────────── */}
       {appState === "error" ? (
         <Box flexDirection="column" gap={0}>
-          <Text color="red">✖ {errorMsg}</Text>
+          <Text color="redBright">✖ {errorMsg}</Text>
           <Text dimColor>Press Enter to continue...</Text>
         </Box>
       ) : pendingApprovals.length > 0 ? (
@@ -81,12 +82,14 @@ export function App({ config }: AppProps) {
           <Text bold color="cyan">
             You:
           </Text>
-          <TextInput
-            value={input}
-            onChange={setInput}
-            onSubmit={handleSubmit}
-            placeholder="Ask a question...  (or /help)"
-          />
+          <Box flexGrow={1}>
+            <TextInput
+              value={input}
+              onChange={setInput}
+              onSubmit={handleSubmit}
+              placeholder="Ask a question...  (or /help)"
+            />
+          </Box>
         </Box>
       ) : null}
     </Box>

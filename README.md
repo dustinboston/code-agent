@@ -246,7 +246,7 @@ src/
     store.ts                # PineconeStore initialization
     retriever.ts            # similaritySearchWithScore + result formatting
   generation/
-    llm.ts                  # createLLM / createPlanner / createDeveloper / createTester
+    llm.ts                  # createPlanner / createDeveloper / createTester
     prompt.ts               # prompt templates for chat, team, developer, tester
   tools/
     filesystem.ts           # read_file, list_directory, write_file (path-sandboxed)

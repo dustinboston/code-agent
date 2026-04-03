@@ -41,6 +41,7 @@ export async function runSubAgent(
   agentName: string,
   onActivity?: (line: string) => void,
   requestApproval?: (command: string) => Promise<boolean>,
+  onAgentMessage?: (agentName: string, message: string) => void,
 ): Promise<string> {
   const agentWithTools = agent.bindTools(agentTools);
   const prompt = promptFn();
@@ -81,10 +82,9 @@ export async function runSubAgent(
 
     if (!accChunk) break;
 
-    // Surface agent text to the activity log (truncated for readability)
-    if (onActivity && iterText.trim()) {
-      const preview = iterText.trim().replace(/\n/g, " ");
-      onActivity(`${agentName}: ${preview.length > 120 ? preview.slice(0, 117) + "..." : preview}`);
+    // Surface full agent text as a top-level message
+    if (onAgentMessage && iterText.trim()) {
+      onAgentMessage(agentName, iterText.trim());
     }
 
     // Append the assistant turn. AIMessageChunk must be converted to AIMessage
@@ -112,7 +112,8 @@ export async function runSubAgent(
               return `${k}: ${s.length > 60 ? s.slice(0, 57) + "..." : s}`;
             })
             .join(", ");
-          onActivity(`${agentName} → ${toolCall.name}(${argsSummary})`);
+          onActivity(`${agentName}
+${toolCall.name}(${argsSummary})`);
         }
         const toolFn = agentTools.find((t) => t.name === toolCall.name);
         let toolMsg: ToolMessage;
@@ -197,6 +198,7 @@ export function createSendMessageTool(
   onStatus: (msg: string) => void,
   onActivity?: (line: string) => void,
   requestApproval?: (command: string) => Promise<boolean>,
+  onAgentMessage?: (agentName: string, message: string) => void,
 ) {
   const developerTools = [readFileTool, listDirectoryTool, writeFileTool];
   const testerTools = [readFileTool, listDirectoryTool, writeFileTool, runCommandTool];
@@ -214,13 +216,24 @@ export function createSendMessageTool(
           "Developer",
           onActivity,
           requestApproval,
+          onAgentMessage,
         );
         return JSON.stringify({ id: "coordinator", status: "success", message: result });
       }
 
       if (id === "tester") {
         onStatus("Tester is working...");
-        const result = await runSubAgent(tester, testerTools, createTesterPrompt, message, onStatus, "Tester", onActivity, requestApproval);
+        const result = await runSubAgent(
+          tester,
+          testerTools,
+          createTesterPrompt,
+          message,
+          onStatus,
+          "Tester",
+          onActivity,
+          requestApproval,
+          onAgentMessage,
+        );
         return JSON.stringify({ id: "coordinator", status: "success", message: result });
       }
 

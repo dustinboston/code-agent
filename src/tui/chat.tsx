@@ -47,14 +47,25 @@ export function ChatMessageView({ message, streaming = false }: ChatMessageViewP
     );
   }
 
-  const isUser = message.role === "user";
+  let labelColor = "green";
+  let labelText = "Assistant";
+  if (message.role === "user") {
+    labelColor = "cyan";
+    labelText = "You";
+  } else if (message.role === "developer") {
+    labelColor = "blue";
+    labelText = "Developer";
+  } else if (message.role === "tester") {
+    labelColor = "magenta";
+    labelText = "Tester";
+  }
 
   return (
     <Box flexDirection="column" marginBottom={1}>
       {/* Header: role label + timestamp */}
       <Box gap={1}>
-        <Text bold color={isUser ? "cyan" : "green"}>
-          {isUser ? "You" : "Assistant"}
+        <Text bold color={labelColor}>
+          {labelText}
         </Text>
         {streaming ? (
           <Text dimColor>(streaming...)</Text>

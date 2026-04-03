@@ -13,6 +13,12 @@ export function printChatMessage(write: (text: string) => void, msg: ChatMessage
   } else if (msg.role === "user") {
     write(chalk.bold.cyan("You") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
     write(`  ${msg.content}\n\n`);
+  } else if (msg.role === "developer") {
+    write(chalk.bold.blue("Developer") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
+    write(`  ${msg.content.replace(/\n/g, "\n  ")}\n\n`);
+  } else if (msg.role === "tester") {
+    write(chalk.bold.magenta("Tester") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
+    write(`  ${msg.content.replace(/\n/g, "\n  ")}\n\n`);
   } else {
     write(chalk.bold.green("Assistant") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
     write(`  ${msg.content.replace(/\n/g, "\n  ")}\n`);

@@ -36,9 +36,8 @@ ESM TypeScript app. Entry point `src/index.ts` uses Commander to route subcomman
 
 ### Generation (`src/generation/`)
 
-`llm.ts` exports four factory functions, all returning streaming-enabled LangChain instances via an internal `createInstance` helper:
+`llm.ts` exports three factory functions, all returning streaming-enabled LangChain instances via an internal `createInstance` helper:
 
-- `createLLM(config)` — primary chat (`config.llm`)
 - `createPlanner(config)` — planner agent (`config.planner`, defaults to `claude-opus-4-6`)
 - `createDeveloper(config)` — developer sub-agent (`config.developer`, temperature 0.3)
 - `createTester(config)` — tester sub-agent (`config.tester`, temperature 0.3)

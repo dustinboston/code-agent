@@ -10,7 +10,7 @@ import type { ChatPromptTemplate } from "@langchain/core/prompts";
 import { type DynamicStructuredTool } from "@langchain/core/tools";
 import { createVectorStore } from "../retrieval/store.js";
 import { createDeveloper, createPlanner, createTester } from "../generation/llm.js";
-import { createTeamPrompt } from "../generation/prompt.js";
+import { createPlannerPrompt } from "../generation/prompt.js";
 import { readFileTool, listDirectoryTool } from "../tools/filesystem.js";
 import { ingestFile } from "../ingest/pipeline.js";
 import type { AppState } from "./status.js";
@@ -25,29 +25,49 @@ interface UseAppControllerProps {
   config: AppConfig;
 }
 
+/**
+ * A React hook that provides the core application logic and state management for the
+ * conversational AI TUI. It handles initialization, user input processing,
+ * interaction with LangChain components (LLMs, vector store, prompts),
+ * tool execution, and managing the chat history and application state.
+ *
+ * @param config - The application configuration object.
+ * @returns An object containing various state variables and functions to interact with the app.
+ */
 export function useAppController({ config }: UseAppControllerProps) {
   const { exit } = useApp();
   const { write } = useStdout();
 
   // App lifecycle state
+  // appState: Manages the current operational state of the application (e.g., "initializing", "idle", "generating", "error").
   const [appState, setAppState] = useState<AppState>("initializing");
-  const [statusMsg, setStatusMsg] = useState("Connecting to Pinecone...");
+  // statusMsg: Displays short, transient status messages to the user (e.g., "Processing...", "Preparing tool...").
+  const [statusMsg, setStatusMsg] = useState("Initializing...");
+  // errorMsg: Stores any error messages that occur, triggering an error display state.
   const [errorMsg, setErrorMsg] = useState("");
 
   // LangChain instances (initialized on mount)
+  // vectorStore: The Pinecone vector store instance used for retrieval-augmented generation (RAG).
   const [vectorStore, setVectorStore] = useState<PineconeStore | null>(null);
+  // llm: An array of LangChain LLM instances, typically including a planner, developer, and tester LLM.
   const [llm, setLlm] = useState<Array<ChatAnthropic | ChatOpenAI | ChatGoogle>>([]);
-  const [ragPrompt, setRagPrompt] = useState<ChatPromptTemplate | null>(null);
+  // chatPromptTemplate: The LangChain chat prompt template used to format messages for the LLM, incorporating chat history and retrieved context.
+  const [chatPromptTemplate, setChatPromptTemplate] = useState<ChatPromptTemplate | null>(null);
 
   // Chat state
+  // completedMessages: An array of ChatMessage objects representing the full chat history displayed to the user.
   const [completedMessages, setCompletedMessages] = useState<ChatMessage[]>([]);
+  // currentSources: Stores the retrieval results (sources) for the currently active query.
   const [currentSources, setCurrentSources] = useState<RetrievalResult[]>([]);
+  // lastSources: Stores the retrieval results from the *previous* query, useful for commands like /sources.
   const [lastSources, setLastSources] = useState<RetrievalResult[]>([]);
 
   // Text input
+  // input: The current value of the user's text input field.
   const [input, setInput] = useState("");
 
   // Command approval queue
+  // pendingApprovals: A queue of commands that require user approval before execution, typically for sensitive operations.
   const [pendingApprovals, setPendingApprovals] = useState<Array<{ command: string; resolve: (approved: boolean) => void }>>([]);
 
   /**
@@ -78,21 +98,24 @@ export function useAppController({ config }: UseAppControllerProps) {
   }, [write]);
 
   /**
-   * Initializes the application for "team" mode, setting up the vector store
-   * and multiple LLM instances (planner, developer, tester).
+   * Initializes the application. This involves:
+   * 1. Creating and setting up the Pinecone vector store for document retrieval.
+   * 2. Instantiating multiple LLM models (planner, developer, tester) based on the configuration.
+   * 3. Creating the RAG prompt template used for guiding the LLMs.
+   * 4. Updating the application state to "idle" once initialization is complete.
    * @returns Promise<void>
    */
-  const createTeam = async () => {
+  const initialize = async () => {
     try {
       const store = await createVectorStore(config);
       const planner = createPlanner(config);
       const developer = createDeveloper(config);
       const tester = createTester(config);
+      const prompt = createPlannerPrompt();
 
-      const prompt = createTeamPrompt();
       setVectorStore(store);
       setLlm([planner, developer, tester]);
-      setRagPrompt(prompt);
+      setChatPromptTemplate(prompt);
       setAppState("idle");
       setStatusMsg("");
     } catch (err) {
@@ -105,7 +128,7 @@ export function useAppController({ config }: UseAppControllerProps) {
   useEffect(() => {
     async function init() {
       try {
-        await createTeam();
+        await initialize();
       } catch (err) {
         setErrorMsg(`Initialization failed: ${err instanceof Error ? err.message : String(err)}`);
         setAppState("error");
@@ -146,46 +169,77 @@ export function useAppController({ config }: UseAppControllerProps) {
   );
 
   /**
-   * Handles a chat query in "team" mode.
+   * Handles a user query by orchestrating the LLM (planner) to generate responses
+   * and execute tools. This function implements the main event loop for a single query.
+   *
+   * The process involves:
+   * 1. Setting the application state to "generating".
+   * 2. Preparing the planner LLM with available tools (filesystem, send message).
+   * 3. Formatting the prompt messages, including chat history and user input.
+   * 4. Entering a `while (true)` loop to continuously stream responses from the planner.
+   *    a. It streams `AIMessageChunk`s, accumulating them into `accChunk`.
+   *    b. It updates the status message when tool calls are detected (e.g., "Preparing readFile...").
+   *    c. It extracts and accumulates text content from the chunks to display intermediate planner thoughts.
+   * 5. After each stream iteration, if there's accumulated text, it's displayed as a planner message.
+   * 6. `AIMessageChunk` is converted to `AIMessage` before being added to `invokeMessages`.
+   *    This is crucial because some LLMs (like Anthropic) require `tool_calls` to be
+   *    fully formed on an `AIMessage` for correct serialization and subsequent tool execution.
+   * 7. If tool calls are present, their execution is initiated in parallel using `Promise.all`.
+   *    The status message is updated to reflect the tools being used.
+   * 8. The results of the tool calls are added back to `invokeMessages` as `ToolMessage`s.
+   * 9. The loop continues until the planner generates a response without any new tool calls.
+   * 10. Finally, the application state is reset to "idle".
+   *
    * @param trimmedInput - The trimmed user input string.
-   * @param chatHistory - The chat history for the LLM.
+   * @param chatHistory - The chat history for the LLM, mapped to LangChain `BaseMessage`s.
    * @returns Promise<void>
    */
-  const handleTeamQuery = useCallback(async (trimmedInput: string, chatHistory: BaseMessage[]) => {
+  const handleQuery = useCallback(async (trimmedInput: string, chatHistory: BaseMessage[]) => {
     setAppState("generating");
-    setStatusMsg("Thinking...");
+    setStatusMsg("Processing...");
 
     try {
-      const planner = llm[0] as ChatAnthropic | ChatOpenAI | ChatGoogle;
-      const developer = llm[1] as ChatAnthropic | ChatOpenAI | ChatGoogle;
-      const tester = llm[2] as ChatAnthropic | ChatOpenAI | ChatGoogle;
-      const writeActivity = (line: string) => {
-        write(chalk.dim(`    | ${line}`) + "\n");
+      const [planner, developer, tester] = llm;
+      const writeActivity = (line: string) => write(chalk.dim(`    | ${line}`) + "\n");
+      const writeAgentMessage = (agentName: string, text: string) => {
+        const msg: ChatMessage = {
+          id: randomUUID(),
+          role: agentName.toLowerCase() as "developer" | "tester",
+          content: text,
+          timestamp: new Date().toISOString(),
+        };
+        printChatMessage(write, msg);
+        setCompletedMessages((prev) => [...prev, msg].slice(-20));
       };
-      const sendMessageTool = createSendMessageTool(developer, tester, setStatusMsg, writeActivity, requestApproval);
+      const sendMessageTool = createSendMessageTool(developer, tester, setStatusMsg, writeActivity, requestApproval, writeAgentMessage);
       const plannerTools: DynamicStructuredTool[] = [readFileTool, listDirectoryTool, sendMessageTool];
       const plannerWithTools = planner.bindTools(plannerTools);
 
-      const promptMessages = await ragPrompt!.formatMessages({
+      const promptMessages = await chatPromptTemplate?.formatMessages({
         chat_history: chatHistory,
         input: trimmedInput,
-      });
+      }) ?? [];
 
       const invokeMessages: BaseMessage[] = [...promptMessages];
       let fullText = "";
 
+      // Main event loop: Continuously stream responses from the planner LLM,
+      // execute tools, and feed results back until a final answer is reached.
       while (true) {
         let accChunk: AIMessageChunk | null = null;
         let iterationText = "";
         let announcedTools = new Set<string>();
 
+        // Stream the response from the planner LLM
         const stream = await plannerWithTools.stream(invokeMessages);
         for await (const chunk of stream) {
           const c = chunk as AIMessageChunk;
+          // Accumulate chunks to form a complete message and extract tool calls
           accChunk = accChunk ? (accChunk.concat(c) as AIMessageChunk) : c;
 
           if (c.tool_call_chunks) {
             for (const tcc of c.tool_call_chunks) {
+              // Update status message when a new tool call is identified
               if (tcc.name && !announcedTools.has(tcc.index?.toString() ?? tcc.id ?? "")) {
                 const key = tcc.index?.toString() ?? tcc.id ?? "";
                 if (key) announcedTools.add(key);
@@ -194,6 +248,7 @@ export function useAppController({ config }: UseAppControllerProps) {
             }
           }
 
+          // Extract text content from the chunk for display
           const text =
             typeof c.content === "string"
               ? c.content
@@ -219,7 +274,10 @@ export function useAppController({ config }: UseAppControllerProps) {
           setCompletedMessages((prev) => [...prev, plannerMsg].slice(-20));
         }
 
-        // Convert AIMessageChunk → AIMessage so Anthropic serializes tool_calls correctly
+        // Convert AIMessageChunk → AIMessage so Anthropic serializes tool_calls correctly.
+        // This conversion is necessary because some LLM providers (like Anthropic) expect
+        // `tool_calls` to be fully formed on an `AIMessage` object when passed back
+        // into the chat history for subsequent turns, rather than as partial `tool_call_chunks`.
         invokeMessages.push(
           new AIMessage({
             content: accChunk.content,
@@ -230,9 +288,10 @@ export function useAppController({ config }: UseAppControllerProps) {
         );
 
         const toolCalls = accChunk.tool_calls ?? [];
-        if (toolCalls.length === 0) break;
+        if (toolCalls.length === 0) break; // Exit loop if no tool calls are made
 
         setStatusMsg(`Using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`);
+        // Execute tool calls in parallel and collect their results
         const toolMessages = await Promise.all(
           toolCalls.map(async (toolCall) => {
             const toolFn = plannerTools.find((t) => t.name === toolCall.name);
@@ -245,6 +304,7 @@ export function useAppController({ config }: UseAppControllerProps) {
               });
             } else {
               try {
+                // Invoke the tool with its arguments
                 toolMsg = (await toolFn.invoke(toolCall)) as ToolMessage;
               } catch (e) {
                 toolMsg = new ToolMessage({
@@ -257,6 +317,7 @@ export function useAppController({ config }: UseAppControllerProps) {
             return toolMsg;
           })
         );
+        // Add tool execution results back to the invokeMessages for the next LLM turn
         invokeMessages.push(...toolMessages);
       }
 
@@ -266,10 +327,25 @@ export function useAppController({ config }: UseAppControllerProps) {
       setErrorMsg(`Generation failed: ${err instanceof Error ? err.message : String(err)}`);
       setAppState("error");
     }
-  }, [llm, ragPrompt, write, requestApproval, setAppState, setStatusMsg, setErrorMsg, setCompletedMessages]);
+  }, [llm, chatPromptTemplate, write, requestApproval, setAppState, setStatusMsg, setErrorMsg, setCompletedMessages]);
 
   /**
    * Handles the submission of user input, either as a chat message or a slash command.
+   *
+   * 1. Trims the input and checks if the app is in an "idle" state.
+   * 2. Clears the input field.
+   * 3. **Slash Command Handling:** If the input starts with "/", it's treated as a slash command.
+   *    The `processSlashCommand` function is called with the command and a set of callbacks
+   *    to interact with the app's state.
+   * 4. **Regular Query Handling:** If it's not a slash command:
+   *    a. The user's message is added to the `completedMessages` chat history and displayed.
+   *    b. The `completedMessages` array is filtered to include only "user" and "assistant" roles,
+   *       and then **mapped to LangChain `BaseMessage` objects** (`HumanMessage` or `AIMessage`).
+   *       This conversion is necessary because LangChain's LLM chains expect specific
+   *       message types for their `chat_history` input.
+   *    c. The `handleQuery` function is then called with the trimmed input and the prepared
+   *       chat history to initiate the LLM generation process.
+   *
    * @param value - The input string from the user.
    * @returns Promise<void>
    */
@@ -280,6 +356,7 @@ export function useAppController({ config }: UseAppControllerProps) {
 
       setInput("");
 
+      // Handle slash commands
       if (trimmed.startsWith("/")) {
         const commandCallbacks: SlashCommandCallbacks = {
           addSystemMsg,
@@ -304,13 +381,15 @@ export function useAppController({ config }: UseAppControllerProps) {
       printChatMessage(write, userMsg);
       setCompletedMessages((prev) => [...prev, userMsg].slice(-20));
 
+      // Map internal ChatMessage objects to LangChain's BaseMessage format
+      // for compatibility with the LLM's chat history input.
       const chatHistory = completedMessages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => (m.role === "user" ? new HumanMessage(m.content) : new AIMessage(m.content)));
 
-      await handleTeamQuery(trimmed, chatHistory);
+      await handleQuery(trimmed, chatHistory);
     },
-    [appState, completedMessages, addSystemMsg, setCompletedMessages, setLastSources, setAppState, setStatusMsg, exit, lastSources, config, write, handleTeamQuery],
+    [appState, completedMessages, addSystemMsg, setCompletedMessages, setLastSources, setAppState, setStatusMsg, exit, lastSources, config, write, handleQuery],
   );
 
   return {

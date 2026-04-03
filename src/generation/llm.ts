@@ -33,23 +33,6 @@ function createInstance(provider: Provider | undefined, model: string, temperatu
 }
 
 /**
- * Creates a streaming-enabled LLM instance for the primary chat / RAG mode.
- *
- * Streaming is set at construction time; the TUI consumes the async iterator
- * returned by `llm.stream(messages)` to render tokens as they arrive.
- *
- * @param config - The fully-resolved application configuration.
- * @returns A configured {@link ChatAnthropic} or {@link ChatOpenAI} instance
- *   using the `config.llm` settings.
- */
-// Creates a streaming-enabled LLM instance.
-// Streaming is set at construction time; the TUI consumes the async iterator
-// returned by llm.stream(messages) to render tokens as they arrive.
-export function createLLM(config: AppConfig) {
-  return createInstance(config.llm.provider, config.llm.model, config.llm.temperature, config.llm.maxTokens);
-}
-
-/**
  * Creates a streaming-enabled LLM instance for the planner agent.
  *
  * The planner interprets user requirements, coordinates sub-agents, and

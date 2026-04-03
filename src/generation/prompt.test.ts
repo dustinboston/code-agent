@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
 import {
-  createChatPrompt,
-  createTeamPrompt,
+  createPlannerPrompt,
   createDeveloperPrompt,
   createTesterPrompt,
 } from "./prompt.js";
@@ -35,65 +34,31 @@ function getMessageContents(template: ChatPromptTemplate): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// createChatPrompt
-// ---------------------------------------------------------------------------
-
-describe("createChatPrompt", () => {
-  it("returns a ChatPromptTemplate", () => {
-    expect(createChatPrompt()).toBeInstanceOf(ChatPromptTemplate);
-  });
-
-  it("includes a chat_history MessagesPlaceholder", () => {
-    const placeholders = getPlaceholderNames(createChatPrompt());
-    expect(placeholders).toContain("chat_history");
-  });
-
-  it("includes an {input} slot in the human message", () => {
-    const contents = getMessageContents(createChatPrompt());
-    expect(contents.some((c) => c.includes("{input}"))).toBe(true);
-  });
-
-  it("includes a {context} slot in the system message", () => {
-    const contents = getMessageContents(createChatPrompt());
-    expect(contents.some((c) => c.includes("{context}"))).toBe(true);
-  });
-
-  it("has exactly 2 non-placeholder messages (system + human)", () => {
-    const contents = getMessageContents(createChatPrompt());
-    expect(contents).toHaveLength(2);
-  });
-
-  it("returns a new instance on each call", () => {
-    expect(createChatPrompt()).not.toBe(createChatPrompt());
-  });
-});
-
-// ---------------------------------------------------------------------------
 // createTeamPrompt
 // ---------------------------------------------------------------------------
 
 describe("createTeamPrompt", () => {
   it("returns a ChatPromptTemplate", () => {
-    expect(createTeamPrompt()).toBeInstanceOf(ChatPromptTemplate);
+    expect(createPlannerPrompt()).toBeInstanceOf(ChatPromptTemplate);
   });
 
   it("includes a chat_history MessagesPlaceholder", () => {
-    const placeholders = getPlaceholderNames(createTeamPrompt());
+    const placeholders = getPlaceholderNames(createPlannerPrompt());
     expect(placeholders).toContain("chat_history");
   });
 
   it("includes an {input} slot in the human message", () => {
-    const contents = getMessageContents(createTeamPrompt());
+    const contents = getMessageContents(createPlannerPrompt());
     expect(contents.some((c) => c.includes("{input}"))).toBe(true);
   });
 
   it("has exactly 2 non-placeholder messages (system + human)", () => {
-    const contents = getMessageContents(createTeamPrompt());
+    const contents = getMessageContents(createPlannerPrompt());
     expect(contents).toHaveLength(2);
   });
 
   it("returns a new instance on each call", () => {
-    expect(createTeamPrompt()).not.toBe(createTeamPrompt());
+    expect(createPlannerPrompt()).not.toBe(createPlannerPrompt());
   });
 });
 
@@ -172,15 +137,14 @@ describe("createTesterPrompt", () => {
 // ---------------------------------------------------------------------------
 
 describe("prompt factory structural consistency", () => {
-  it("chat and team prompts both carry chat_history; developer and tester do not", () => {
-    expect(getPlaceholderNames(createChatPrompt())).toContain("chat_history");
-    expect(getPlaceholderNames(createTeamPrompt())).toContain("chat_history");
+  it("team prompt carries chat_history; developer and tester do not", () => {
+    expect(getPlaceholderNames(createPlannerPrompt())).toContain("chat_history");
     expect(getPlaceholderNames(createDeveloperPrompt())).not.toContain("chat_history");
     expect(getPlaceholderNames(createTesterPrompt())).not.toContain("chat_history");
   });
 
-  it("all four prompts expose an {input} variable", () => {
-    const factories = [createChatPrompt, createTeamPrompt, createDeveloperPrompt, createTesterPrompt];
+  it("all three prompts expose an {input} variable", () => {
+    const factories = [createPlannerPrompt, createDeveloperPrompt, createTesterPrompt];
     for (const factory of factories) {
       const template = factory();
       expect(template.inputVariables).toContain("input");
@@ -188,7 +152,6 @@ describe("prompt factory structural consistency", () => {
   });
 
   it("chat_history-bearing prompts expose chat_history as an input variable", () => {
-    expect(createChatPrompt().inputVariables).toContain("chat_history");
-    expect(createTeamPrompt().inputVariables).toContain("chat_history");
+    expect(createPlannerPrompt().inputVariables).toContain("chat_history");
   });
 });
