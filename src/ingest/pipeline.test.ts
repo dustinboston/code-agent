@@ -66,14 +66,13 @@ import { createSplitter } from "./chunker";
 
 describe("ingestFile", () => {
   const mockConfig: AppConfig = {
-    llm: { provider: "openai", model: "gpt-4", temperature: 0.7, maxTokens: 1000 },
     planner: { provider: "openai", model: "gpt-4", temperature: 0.7, maxTokens: 1000 },
     developer: { provider: "openai", model: "gpt-4", temperature: 0.7, maxTokens: 1000 },
     tester: { provider: "openai", model: "gpt-4", temperature: 0.7, maxTokens: 1000 },
     embedding: { provider: "openai", model: "text-embedding-ada-002", dimensions: 1536 },
     pinecone: { indexName: "test-index", namespace: "test-namespace" },
     chunking: { strategy: "recursive", chunkSize: 1000, chunkOverlap: 200, batchSize: 50 },
-    retrieval: { topK: 5, scoreThreshold: 0.8 },
+    retrieval: { topK: 5 },
     storage: { dataDir: "./data" },
   };
   const mockFilePath = "/data/test.pdf";

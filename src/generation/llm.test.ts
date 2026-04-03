@@ -17,12 +17,6 @@ vi.mock("@langchain/openai");
 vi.mock("@langchain/google");
 
 const mockConfig: AppConfig = {
-  llm: {
-    provider: "anthropic",
-    model: "claude-3-sonnet-20240229",
-    temperature: 0.7,
-    maxTokens: 1000,
-  },
   planner: {
     provider: "openai",
     model: "gpt-4o",
@@ -57,7 +51,6 @@ const mockConfig: AppConfig = {
   },
   retrieval: {
     topK: 5,
-    scoreThreshold: 0.7,
   },
   storage: {
     dataDir: "./data",

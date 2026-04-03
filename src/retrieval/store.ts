@@ -28,8 +28,6 @@ import type { AppConfig } from "../types.js";
  *                 and embedding model settings.
  * @returns A ready-to-use {@link PineconeStore} instance.
  */
-// Creates a PineconeStore instance connected to an existing index.
-// Used at chat startup and after in-chat ingestion.
 export async function createVectorStore(config: AppConfig): Promise<PineconeStore> {
   if (!process.env.PINECONE_API_KEY) {
     throw new Error("PINECONE_API_KEY environment variable is not set.");

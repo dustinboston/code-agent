@@ -32,12 +32,6 @@ vi.mock('@langchain/pinecone', () => {
 
 describe('createVectorStore', () => {
   const mockConfig: AppConfig = {
-    llm: {
-      provider: 'openai',
-      model: 'gpt-3.5-turbo',
-      temperature: 0.7,
-      maxTokens: 1000,
-    },
     planner: {
       provider: 'openai',
       model: 'gpt-4',
@@ -73,11 +67,11 @@ describe('createVectorStore', () => {
     },
     retrieval: {
       topK: 3,
-      scoreThreshold: 0.7,
     },
     storage: {
       dataDir: './data',
     },
+    allowedCommands: [],
   };
 
   beforeEach(() => {

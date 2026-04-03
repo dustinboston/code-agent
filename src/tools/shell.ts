@@ -13,6 +13,7 @@ import { z } from "zod";
 import { exec } from "child_process";
 import { promisify } from "util";
 
+
 /**
  * Promisified version of `child_process.exec`, used internally by
  * {@link runCommandTool} to `await` shell command completion without blocking
@@ -42,8 +43,8 @@ export const runCommandTool = tool(
     try {
       // Pass a timeout to prevent the agent from hanging the app forever if it runs `vite -w` or similar.
       // Clear NODE_OPTIONS so the TUI's `tsx` loader doesn't interfere with Vitest's own worker threads.
-      const { stdout, stderr } = await execAsync(command, { 
-        cwd: process.cwd(), 
+      const { stdout, stderr } = await execAsync(command, {
+        cwd: process.cwd(),
         timeout: 30000,
         env: { ...process.env, NODE_OPTIONS: undefined }
       });
@@ -57,8 +58,7 @@ export const runCommandTool = tool(
   {
     name: "run_command",
     description:
-      "Run a shell command and return its output. Use this to run tests (e.g. 'pnpm test -- --run'), " +
-      "type-check ('pnpm exec tsc --noEmit'), or verify code changes.",
+      "Run a shell command and return its output. This is a last resort if no other tools can handle the request.",
     schema: z.object({
       command: z.string().describe("The shell command to run"),
     }),

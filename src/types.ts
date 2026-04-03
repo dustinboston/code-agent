@@ -17,13 +17,13 @@ export interface IngestedDocument {
   /** Unique identifier (UUID v4) assigned at ingest time. */
   id: string;
   /** Absolute file path of the original document. */
-  source: string;        // absolute file path
+  source: string;
   /** File format detected from the extension, e.g. `"txt"`, `"md"`, `"pdf"`. */
-  format: string;        // txt, md, pdf
+  format: string;
   /** Number of text chunks that were embedded and upserted into Pinecone. */
   chunkCount: number;
   /** ISO 8601 timestamp recorded when the document was ingested. */
-  ingestedAt: string;    // ISO timestamp
+  ingestedAt: string;
 }
 
 /**
@@ -36,14 +36,13 @@ export interface RetrievalResult {
   /** Absolute path of the source document this chunk belongs to. */
   source: string;
   /** Cosine similarity score in the range 0–1 (higher is more relevant). */
-  score: number;         // cosine similarity 0–1
+  score: number;
 }
 
 /**
  * A single message in the chat conversation, as stored in React state and
  * written to the terminal via Ink.
  */
-// A single message in the chat UI
 export interface ChatMessage {
   /** Unique identifier (UUID v4) for this message. */
   id: string;
@@ -60,7 +59,7 @@ export interface ChatMessage {
    * Retrieval results that grounded this response.
    * Only present on `"assistant"` messages produced in chat mode.
    */
-  sources?: RetrievalResult[];            // only on assistant messages
+  sources?: RetrievalResult[];
   /** ISO 8601 timestamp recorded when the message was created. */
   timestamp: string;
 }
@@ -83,19 +82,6 @@ export type Provider = "anthropic" | "openai" | "google";
  */
 export interface AppConfig {
   /**
-   * Settings for the primary chat / RAG LLM.
-   */
-  llm: {
-    /** LLM provider to use for chat responses. */
-    provider: Provider;
-    /** Model identifier string (e.g. `"claude-sonnet-4-6"`). */
-    model: string;
-    /** Sampling temperature — higher values produce more varied output. */
-    temperature: number;
-    /** Maximum number of tokens the model may generate per response. */
-    maxTokens: number;
-  };
-  /**
    * Settings for the planner agent used in team mode.
    *
    * The planner interprets user requirements and coordinates the developer
@@ -109,7 +95,7 @@ export interface AppConfig {
     /** Sampling temperature for the planner. */
     temperature: number;
     /** Maximum tokens the planner may generate per turn. */
-    maxTokens: number; 
+    maxTokens: number;
   },
   /**
    * Settings for the developer sub-agent used in team mode.
@@ -141,7 +127,7 @@ export interface AppConfig {
     temperature: number;
     /** Maximum tokens the tester may generate per turn. */
     maxTokens: number;
-  };  
+  };
   /**
    * Settings for the OpenAI text-embedding model used to vectorise documents
    * and queries before Pinecone upsert / search.
@@ -193,11 +179,6 @@ export interface AppConfig {
   retrieval: {
     /** Number of top-scoring chunks to retrieve per query. */
     topK: number;
-    /**
-     * Minimum cosine similarity score for a chunk to be included.
-     * Currently unused — all top-k results are forwarded to the LLM.
-     */
-    scoreThreshold: number;
   };
   /**
    * Local filesystem storage settings.
@@ -206,4 +187,13 @@ export interface AppConfig {
     /** Directory where ingested-document metadata JSON files are persisted. */
     dataDir: string;
   };
+  /**
+   * List of shell command patterns that are pre-approved and do not require
+   * interactive user confirmation before execution. Each string is converted
+   * to a `RegExp` and tested against the full command string. If any pattern
+   * matches, the command runs without prompting.
+   *
+   * Example: `["^pnpm test", "^pnpm exec tsc"]`
+   */
+  allowedCommands: string[];
 }

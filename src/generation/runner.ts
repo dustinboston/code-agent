@@ -1,13 +1,13 @@
 import { randomUUID } from "crypto";
 import chalk from "chalk";
-import { HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
+import { AIMessage, ToolMessage } from "@langchain/core/messages";
 import type { AIMessageChunk, BaseMessage } from "@langchain/core/messages";
 import type { ChatAnthropic } from "@langchain/anthropic";
 import type { ChatOpenAI } from "@langchain/openai";
 import type { ChatGoogle } from "@langchain/google";
 import { z } from "zod";
-import { tool, type DynamicStructuredTool } from "@langchain/core/tools";
-import { filesystemTools, readFileTool, listDirectoryTool, writeFileTool } from "../tools/filesystem.js";
+import { tool } from "@langchain/core/tools";
+import { filesystemTools, readFileTool, listDirectoryTool, writeFileTool, deletePathTool } from "../tools/filesystem.js";
 import { runCommandTool } from "../tools/shell.js";
 import { createDeveloperPrompt, createTesterPrompt } from "../generation/prompt.js";
 
@@ -41,7 +41,7 @@ export async function runSubAgent(
   agentName: string,
   onActivity?: (line: string) => void,
   requestApproval?: (command: string) => Promise<boolean>,
-  onAgentMessage?: (agentName: string, message: string) => void,
+  onAgentMessage?: (agentName: string, message: string) => Promise<void>,
 ): Promise<string> {
   const agentWithTools = agent.bindTools(agentTools);
   const prompt = promptFn();
@@ -84,7 +84,7 @@ export async function runSubAgent(
 
     // Surface full agent text as a top-level message
     if (onAgentMessage && iterText.trim()) {
-      onAgentMessage(agentName, iterText.trim());
+      await onAgentMessage(agentName, iterText.trim());
     }
 
     // Append the assistant turn. AIMessageChunk must be converted to AIMessage
@@ -180,9 +180,8 @@ export async function runSubAgent(
  * then decides whether to call the tester, ask a follow-up, or report back
  * to the user.
  *
- * **Tool access by role:**
- * - **developer** — `read_file`, `list_directory`, `write_file`
- * - **tester** — `read_file`, `list_directory`, `write_file`, `run_command`
+ * Both sub-agents share the same tool set: `read_file`, `list_directory`,
+ * `write_file`, `delete_path`, and `run_command`.
  *
  * @param developer - LLM instance for the developer sub-agent.
  * @param tester - LLM instance for the tester sub-agent.
@@ -197,10 +196,10 @@ export function createSendMessageTool(
   onStatus: (msg: string) => void,
   onActivity?: (line: string) => void,
   requestApproval?: (command: string) => Promise<boolean>,
-  onAgentMessage?: (agentName: string, message: string) => void,
+  onAgentMessage?: (agentName: string, message: string) => Promise<void>,
 ) {
-  const developerTools = [readFileTool, listDirectoryTool, writeFileTool];
-  const testerTools = [readFileTool, listDirectoryTool, writeFileTool, runCommandTool];
+  const developerTools = [readFileTool, listDirectoryTool, writeFileTool, deletePathTool, runCommandTool];
+  const testerTools = [readFileTool, listDirectoryTool, writeFileTool, deletePathTool, runCommandTool];
 
   return tool(
     async ({ id, message }: { id: string; message: string }) => {

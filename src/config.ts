@@ -22,12 +22,6 @@ import type { AppConfig } from "./types.js";
 dotenvConfig();
 
 const DEFAULTS: AppConfig = {
-  llm: {
-    provider: "anthropic",
-    model: "claude-sonnet-4-6", // /6/20250514/
-    temperature: 0.7,
-    maxTokens: 8192,
-  },
   embedding: {
     provider: "openai",
     model: "text-embedding-3-small",
@@ -44,7 +38,6 @@ const DEFAULTS: AppConfig = {
   },
   retrieval: {
     topK: 8,
-    scoreThreshold: 0, // unused — all top-k results are passed to the LLM
   },
   storage: {
     dataDir: "./data",
@@ -61,13 +54,14 @@ const DEFAULTS: AppConfig = {
     temperature: 0.3,
     maxTokens: 8192,
   },
-  // Assumes the role of a QA Engineer
+  // The tester agent is configured with a lower temperature to act as a QA Engineer, ensuring reproducible test generation.
   tester: {
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     temperature: 0.3,
     maxTokens: 8192,
   },
+  allowedCommands: [],
 };
 
 /**
@@ -106,22 +100,21 @@ function loadFileConfig(): Partial<AppConfig> {
  * @returns A fully-populated {@link AppConfig} ready for use by the rest of
  *   the application.
  */
-// Resolve config: defaults → config file → env vars → CLI overrides
 export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const fileConfig = loadFileConfig();
   const merge = <T extends object>(base: T, ...layers: Array<Partial<T> | undefined>): T =>
     Object.assign({}, base, ...layers);
 
   return {
-    llm:       merge(DEFAULTS.llm,       fileConfig.llm,       overrides.llm),
     embedding: merge(DEFAULTS.embedding, fileConfig.embedding, overrides.embedding),
     pinecone:  merge(DEFAULTS.pinecone,  fileConfig.pinecone,  { indexName: process.env.PINECONE_INDEX ?? DEFAULTS.pinecone.indexName }, overrides.pinecone),
     chunking:  merge(DEFAULTS.chunking,  fileConfig.chunking,  overrides.chunking),
     retrieval: merge(DEFAULTS.retrieval, fileConfig.retrieval, overrides.retrieval),
     storage:   merge(DEFAULTS.storage,   fileConfig.storage,   overrides.storage),
-    planner:   merge(DEFAULTS.planner,   fileConfig.planner,   overrides.planner),
-    developer: merge(DEFAULTS.developer, fileConfig.developer, overrides.developer),
-    tester:    merge(DEFAULTS.tester,    fileConfig.tester,    overrides.tester),
+    planner:         merge(DEFAULTS.planner,   fileConfig.planner,   overrides.planner),
+    developer:       merge(DEFAULTS.developer, fileConfig.developer, overrides.developer),
+    tester:          merge(DEFAULTS.tester,    fileConfig.tester,    overrides.tester),
+    allowedCommands: overrides.allowedCommands ?? fileConfig.allowedCommands ?? DEFAULTS.allowedCommands,
   };
 }
 

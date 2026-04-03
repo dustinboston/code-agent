@@ -15,13 +15,13 @@ export function printChatMessage(write: (text: string) => void, msg: ChatMessage
     write(`  ${msg.content}\n\n`);
   } else if (msg.role === "developer") {
     write(chalk.bold.blue("Developer") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
-    write(`  ${msg.content.replace(/\n/g, "\n  ")}\n\n`);
+    write(`  ${msg.content}\n\n`);
   } else if (msg.role === "tester") {
     write(chalk.bold.magenta("Tester") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
-    write(`  ${msg.content.replace(/\n/g, "\n  ")}\n\n`);
+    write(`  ${msg.content}\n\n`);
   } else {
-    write(chalk.bold.green("Assistant") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
-    write(`  ${msg.content.replace(/\n/g, "\n  ")}\n`);
+    write(chalk.bold.green("Planner") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
+    write(`  ${msg.content}\n`);
     if (msg.sources && msg.sources.length > 0) {
       write(chalk.dim(`  Sources: ${msg.sources.map((s) => `${s.source} (${(s.score * 100).toFixed(0)}%)`).join(" · ")}\n`));
     }

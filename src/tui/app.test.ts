@@ -10,7 +10,13 @@ import { processSlashCommand, SlashCommandCallbacks } from './commands';
 import { AppConfig, Provider } from '../types';
 
 // Mock external dependencies
-vi.mock('readline/promises'); // Keep mocking the module
+vi.mock('readline/promises', () => ({
+  createInterface: vi.fn(() => ({
+    question: vi.fn(() => Promise.resolve('/quit')),
+    close: vi.fn(),
+    on: vi.fn(),
+  })),
+}));
 vi.mock('../retrieval/store');
 vi.mock('../generation/llm');
 vi.mock('../generation/prompt');
@@ -18,15 +24,15 @@ vi.mock('./commands'); // Mock processSlashCommand
 
 describe('startApp', () => {
   const mockConfig: AppConfig = {
-    llm: { provider: "anthropic", model: 'test-llm-model', temperature: 0.7, maxTokens: 1000 },
     planner: { provider: "anthropic", model: 'test-planner-model', temperature: 0.7, maxTokens: 1000 },
     developer: { provider: "anthropic", model: 'test-developer-model', temperature: 0.7, maxTokens: 1000 },
     tester: { provider: "anthropic", model: 'test-tester-model', temperature: 0.7, maxTokens: 1000 },
     embedding: { provider: 'openai', model: 'text-embedding-ada-002', dimensions: 1536 },
     pinecone: { indexName: 'test-index' },
     chunking: { strategy: 'recursive', chunkSize: 1000, chunkOverlap: 200, batchSize: 50 },
-    retrieval: { topK: 5, scoreThreshold: 0.8 },
+    retrieval: { topK: 5 },
     storage: { dataDir: './data' },
+    allowedCommands: [],
   };
 
   let originalProcessExit: (code?: number) => never;

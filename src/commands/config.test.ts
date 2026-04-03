@@ -23,7 +23,7 @@ describe('configCommand', () => {
 
     // Provide a default mock implementation for loadConfig
     vi.mocked(loadConfig).mockReturnValue({
-      retrieval: { topK: 5, scoreThreshold: 0.5 },
+      retrieval: { topK: 5 },
       llm: { provider: 'anthropic', model: 'claude-3-sonnet-20240229', temperature: 0, maxTokens: 2048 },
     } as any);
   });
@@ -36,7 +36,7 @@ describe('configCommand', () => {
     // The order of these expectations matters for toHaveBeenCalledWith
     expect(console.log).toHaveBeenNthCalledWith(1, '\nCode Agent — Configuration\n');
     expect(console.log).toHaveBeenNthCalledWith(2, JSON.stringify({
-      retrieval: { topK: 5, scoreThreshold: 0.5 },
+      retrieval: { topK: 5 },
       llm: { provider: 'anthropic', model: 'claude-3-sonnet-20240229', temperature: 0, maxTokens: 2048 },
     }, null, 2));
     expect(console.log).toHaveBeenNthCalledWith(3); // Expect no arguments for the last console.log()

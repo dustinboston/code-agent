@@ -78,7 +78,7 @@ export async function ingestFile(
     throw new Error("No content could be extracted from this file. It may be empty.");
   }
 
-  // Check that at least some pages have actual text content
+  // Verify that the PDF is not purely image-based (scanned) so we don't ingest empty documents.
   const totalChars = docs.reduce((sum, d) => sum + d.pageContent.trim().length, 0);
   if (totalChars === 0) {
     throw new Error(
@@ -112,17 +112,14 @@ export async function ingestFile(
 
   onProgress?.(`Embedding ${chunks.length} chunks and storing in Pinecone...`);
 
-  // Initialize the Pinecone client and target the configured index for upserts.
   const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
   const index = pinecone.index(config.pinecone.indexName);
 
-  // Configure the OpenAI embeddings model with the project-specified dimensions.
   const embeddings = new OpenAIEmbeddings({
     model: config.embedding.model,
     dimensions: config.embedding.dimensions,
   });
 
-  // Embed and upsert chunks in batches, retrying on rate-limit errors.
   const batchSize = config.chunking.batchSize;
   for (let i = 0; i < taggedChunks.length; i += batchSize) {
     const batch = taggedChunks.slice(i, i + batchSize);

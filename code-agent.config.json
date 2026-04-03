@@ -16,5 +16,10 @@
     "model": "gemini-2.5-flash",
     "temperature": 0.3,
     "maxTokens": 8192
-  }
+  },
+  "allowedCommands": [
+    "^pnpm test",
+    "^pnpm exec tsc",
+    "^pnpm run test"
+  ]
 }

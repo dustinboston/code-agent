@@ -8,7 +8,7 @@
  */
 import { tool, type DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
-import { readFile, readdir, writeFile, mkdir } from "fs/promises";
+import { readFile, readdir, writeFile, mkdir, rm } from "fs/promises";
 import { resolve, dirname, relative, isAbsolute } from "path";
 
 /**
@@ -108,9 +108,36 @@ export const writeFileTool = tool(
 );
 
 /**
- * Convenience array that bundles {@link readFileTool}, {@link listDirectoryTool},
- * and {@link writeFileTool} together so they can be passed to
- * `llm.bindTools(filesystemTools)` in a single expression when wiring up an
- * LLM agent.
+ * Deletes the file or directory at the given path. Directories are removed
+ * recursively. Relative paths are resolved against `process.cwd()`. Returns a
+ * confirmation string on success or an error string on failure.
  */
-export const filesystemTools: DynamicStructuredTool[] = [readFileTool, listDirectoryTool, writeFileTool];
+export const deletePathTool = tool(
+  async ({ path }: { path: string }) => {
+    try {
+      const resolved = resolve(path);
+      if (!isSafePath(resolved)) {
+        return `Error: Access denied. Path "${path}" is outside the workspace sandbox.`;
+      }
+      await rm(resolved, { recursive: true, force: true });
+      return `Deleted: ${resolved}`;
+    } catch (e) {
+      return `Error deleting path: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  },
+  {
+    name: "delete_path",
+    description: "Delete a file or directory (including all contents). Use with care — this is irreversible.",
+    schema: z.object({
+      path: z.string().describe("Path to the file or directory to delete"),
+    }),
+  }
+);
+
+/**
+ * Convenience array that bundles {@link readFileTool}, {@link listDirectoryTool},
+ * {@link writeFileTool}, and {@link deletePathTool} together so they can be
+ * passed to `llm.bindTools(filesystemTools)` in a single expression when
+ * wiring up an LLM agent.
+ */
+export const filesystemTools: DynamicStructuredTool[] = [readFileTool, listDirectoryTool, writeFileTool, deletePathTool];

@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import type { AppConfig, ChatMessage, RetrievalResult } from "../types.js";
 import { ingestFile } from "../ingest/pipeline.js";
 
-// Define a simple state type for the CLI application (duplicate from app.ts for now, will refactor later if needed)
+// Duplicated from app.ts to avoid circular dependencies before a larger refactor.
 interface CliAppState {
   state: "initializing" | "idle" | "generating" | "error" | "retrieving";
   statusMsg: string;
@@ -12,7 +12,7 @@ interface CliAppState {
 }
 
 export interface SlashCommandCallbacks {
-  addSystemMsg: (content: string) => void;
+  addSystemMsg: (content: string) => Promise<void>;
   setCompletedMessages: (messages: ChatMessage[]) => void;
   setLastSources: (sources: RetrievalResult[]) => void;
   setAppState: (state: CliAppState["state"]) => void;
@@ -33,7 +33,7 @@ export async function processSlashCommand(
 
   switch (command) {
     case "help":
-      addSystemMsg(
+      await addSystemMsg(
         [
           "/help              — show this message",
           "/clear             — clear conversation history",
@@ -48,23 +48,23 @@ export async function processSlashCommand(
     case "clear":
       setCompletedMessages([]);
       setLastSources([]);
-      addSystemMsg("Conversation cleared.");
+      await addSystemMsg("Conversation cleared.");
       break;
 
     case "sources":
       if (callbacks.lastSources.length === 0) {
-        addSystemMsg("No sources from the last response.");
+        await addSystemMsg("No sources from the last response.");
       }
       else {
         const lines = callbacks.lastSources.map(
           (s, i) => `${i + 1}. ${s.source}\n   relevance: ${(s.score * 100).toFixed(0)}%`,
         );
-        addSystemMsg(`Sources from last response:\n\n${lines.join("\n\n")}`);
+        await addSystemMsg(`Sources from last response:\n\n${lines.join("\n\n")}`);
       }
       break;
 
     case "config":
-      addSystemMsg(JSON.stringify(config, null, 2));
+      await addSystemMsg(JSON.stringify(config, null, 2));
       break;
 
     case "quit":
@@ -75,16 +75,16 @@ export async function processSlashCommand(
     case "ingest": {
       const filePath = parts.slice(1).join(" ");
       if (!filePath) {
-        addSystemMsg("Usage: /ingest <path-to-file>");
+        await addSystemMsg("Usage: /ingest <path-to-file>");
         break;
       }
       setAppState("retrieving");
       setStatusMsg(`Ingesting ${filePath}...`);
       try {
         const result = await ingestFile(filePath, config, (msg) => setStatusMsg(msg));
-        addSystemMsg(`Ingested: ${result.source}\n${result.chunkCount} chunks stored in Pinecone.`);
+        await addSystemMsg(`Ingested: ${result.source}\n${result.chunkCount} chunks stored in Pinecone.`);
       } catch (err) {
-        addSystemMsg(`Ingest failed: ${err instanceof Error ? err.message : String(err)}`);
+        await addSystemMsg(`Ingest failed: ${err instanceof Error ? err.message : String(err)}`);
       }
       setAppState("idle");
       setStatusMsg("");
@@ -92,6 +92,6 @@ export async function processSlashCommand(
     }
 
     default:
-      addSystemMsg(`Unknown command: /${command}\nType /help to see available commands.`);
+      await addSystemMsg(`Unknown command: /${command}\nType /help to see available commands.`);
   }
 }

@@ -8,12 +8,19 @@
  * with Commander and delegates argument parsing to the framework.
  * The default action (no sub-command) launches team mode.
  */
-import { Command } from "commander";
+import packageJson from "../package.json" with { type: "json" };
 import { loadConfig, validateConfig } from "./config.js";
-import { startApp } from "./tui/app.js";
-import { ingestCommand } from "./commands/ingest.js";
-import { configCommand } from "./commands/config.js";
-import { storeCommand } from "./commands/store.js";
+import { Command } from "commander";
+
+const version = packageJson.version;
+
+console.log(`Code Agent ${version}`);
+
+// Dynamic imports defer heavy LangChain module loading until after the banner prints.
+
+const { ingestCommand } = await import("./commands/ingest.js");
+const { configCommand } = await import("./commands/config.js");
+const { storeCommand } = await import("./commands/store.js");
 
 /**
  * Root Commander program instance.
@@ -25,9 +32,11 @@ const program = new Command();
 
 program
   .name("code-agent")
-  .description("AI code editing assistant")
-  .version("0.1.0")
-  .action(() => {
+  .description("AI code editing team")
+  .version(version)
+  .action(async () => {
+    const { startApp } = await import("./tui/app.js");
+    
     const config = loadConfig();
     validateConfig(config);
     startApp(config);
