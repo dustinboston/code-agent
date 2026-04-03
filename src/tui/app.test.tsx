@@ -43,9 +43,8 @@ vi.mock("@langchain/google", () => ({
   ChatGoogle: vi.fn(() => new MockLLMInstance()),
 }));
 
-// Mock the module that exports createLLM, createPlanner, etc.
+// Mock the module that exports createPlanner, createDeveloper, etc.
 vi.mock("../generation/llm.js", () => ({
-  createLLM: vi.fn(() => new MockLLMInstance()),
   createPlanner: vi.fn(() => new MockLLMInstance()),
   createDeveloper: vi.fn(() => new MockLLMInstance()),
   createTester: vi.fn(() => new MockLLMInstance()),
@@ -118,6 +117,7 @@ describe("App", () => {
       strategy: "recursive",
       chunkSize: 1000,
       chunkOverlap: 200,
+      batchSize: 1000, // Added batchSize
     },
     retrieval: {
       topK: 4,
@@ -133,22 +133,11 @@ describe("App", () => {
     expect(lastFrame()).toMatchSnapshot();
   });
 
-  it("renders in idle state after initialization (chat mode)", async () => {
-    const { lastFrame } = render(<App config={mockConfig} mode="chat" />);
-
-    // Flush all microtasks to allow useEffect to complete
-    await new Promise(process.nextTick);
-    await vi.runAllTimersAsync();
-
-    // The component should transition to idle state
-    expect(lastFrame()).toMatchSnapshot();
-  });
-
   it("renders in error state", async () => {
-    // Mock createLLM to return a rejected promise during initialization
-    const { createLLM } = await import("../generation/llm.js");
-    vi.mocked(createLLM).mockImplementationOnce(() => {
-      throw new Error("Failed to create LLM"); // Throw synchronously
+    // Mock createVectorStore to return a rejected promise during initialization
+    const { createVectorStore } = await import("../retrieval/store.js");
+    vi.mocked(createVectorStore).mockImplementationOnce(() => {
+      throw new Error("Failed to create vector store"); // Throw synchronously
     });
 
     const { lastFrame } = render(<App config={mockConfig} />);

@@ -1,11 +1,9 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`App > renders in error state 1`] = `
-"✖ Initialization failed: Failed to create LLM
+"✖ Initialization failed: Failed to create vector store
 Press Enter to continue..."
 `;
-
-exports[`App > renders in idle state after initialization (chat mode) 1`] = `"You: Ask a question...  (or /help)"`;
 
 exports[`App > renders in initializing state 1`] = `
 "

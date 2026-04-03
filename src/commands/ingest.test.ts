@@ -38,7 +38,7 @@ describe('ingestCommand', () => {
 
   const defaultConfig = {
     pinecone: { indexName: 'test-index', namespace: 'test-namespace' },
-    chunking: { strategy: 'recursive', chunkSize: 1000, chunkOverlap: 200 },
+    chunking: { strategy: 'recursive', chunkSize: 1000, chunkOverlap: 200, batchSize: 1000 }, // Added batchSize
   };
 
   let program: Command; // Declare program here
@@ -83,7 +83,7 @@ describe('ingestCommand', () => {
     expect(loadConfig).toHaveBeenCalledWith({});
     expect(validateConfig).toHaveBeenCalledTimes(1);
     expect(ingestFile).toHaveBeenCalledWith(filePath, defaultConfig, expect.any(Function));
-    expect(consoleLogSpy).toHaveBeenCalledWith('\nRAG Starter — Ingestion\n');
+    expect(consoleLogSpy).toHaveBeenCalledWith('\nCode Agent — Ingestion\n');
     expect(consoleLogSpy).toHaveBeenCalledWith('  ✔ test-file.md');
     expect(consoleLogSpy).toHaveBeenCalledWith('     10 chunks embedded');
     expect(consoleLogSpy).toHaveBeenCalledWith('     Pinecone index: test-index');
@@ -99,7 +99,7 @@ describe('ingestCommand', () => {
 
     const customConfig = {
       ...defaultConfig,
-      chunking: { strategy: 'recursive', chunkSize: 500, chunkOverlap: 50 },
+      chunking: { strategy: 'recursive', chunkSize: 500, chunkOverlap: 50, batchSize: 1000 }, // Added batchSize
     };
 
     await program.parseAsync(['node', 'test', 'ingest', filePath, '--chunk-size', '500', '--chunk-overlap', '50']);
@@ -107,7 +107,7 @@ describe('ingestCommand', () => {
     expect(path.resolve).toHaveBeenCalledWith(filePath);
     expect(fs.existsSync).toHaveBeenCalledWith(filePath);
     expect(loadConfig).toHaveBeenCalledWith({
-      chunking: { strategy: 'recursive', chunkSize: 500, chunkOverlap: 50 },
+      chunking: { strategy: 'recursive', chunkSize: 500, chunkOverlap: 50, batchSize: 1000 }, // Added batchSize
     });
     expect(validateConfig).toHaveBeenCalledWith(customConfig);
     expect(ingestFile).toHaveBeenCalledWith(filePath, customConfig, expect.any(Function));

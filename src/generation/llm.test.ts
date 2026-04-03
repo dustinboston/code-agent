@@ -54,6 +54,7 @@ const mockConfig: AppConfig = {
     strategy: "recursive",
     chunkSize: 1000,
     chunkOverlap: 200,
+    batchSize: 1000, // Added batchSize
   },
   retrieval: {
     topK: 5,

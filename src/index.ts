@@ -32,7 +32,7 @@ program
   .action(() => {
     const config = loadConfig();
     validateConfig(config);
-    render(React.createElement(App, { config, mode: "team" }));
+    render(React.createElement(App, { config }));
   });
 
 program.addCommand(ingestCommand);

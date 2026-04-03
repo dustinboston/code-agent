@@ -44,6 +44,7 @@ export const ingestCommand = new Command("ingest")
         strategy: "recursive",
         chunkSize: options.chunkSize,
         chunkOverlap: options.chunkOverlap,
+        batchSize: 1000,
       };
     }
 
@@ -56,7 +57,7 @@ export const ingestCommand = new Command("ingest")
       process.exit(1);
     }
 
-    console.log(chalk.bold("\nRAG Starter — Ingestion\n"));
+    console.log(chalk.bold("\nCode Agent — Ingestion\n"));
 
     let lastMsg = "";
     const clearLine = () => {

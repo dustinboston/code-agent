@@ -34,7 +34,7 @@ describe('configCommand', () => {
     expect(loadConfig).toHaveBeenCalledWith();
     expect(console.log).toHaveBeenCalledTimes(3);
     // The order of these expectations matters for toHaveBeenCalledWith
-    expect(console.log).toHaveBeenNthCalledWith(1, '\nRAG Starter — Configuration\n');
+    expect(console.log).toHaveBeenNthCalledWith(1, '\nCode Agent — Configuration\n');
     expect(console.log).toHaveBeenNthCalledWith(2, JSON.stringify({
       retrieval: { topK: 5, scoreThreshold: 0.5 },
       llm: { provider: 'anthropic', model: 'claude-3-sonnet-20240229', temperature: 0, maxTokens: 2048 },
