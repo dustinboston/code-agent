@@ -112,8 +112,7 @@ export async function runSubAgent(
               return `${k}: ${s.length > 60 ? s.slice(0, 57) + "..." : s}`;
             })
             .join(", ");
-          onActivity(`${agentName}
-${toolCall.name}(${argsSummary})`);
+          onActivity(`${agentName}: ${toolCall.name}(${argsSummary})`);
         }
         const toolFn = agentTools.find((t) => t.name === toolCall.name);
         let toolMsg: ToolMessage;

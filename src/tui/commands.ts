@@ -1,16 +1,24 @@
 import { randomUUID } from "crypto";
 import type { AppConfig, ChatMessage, RetrievalResult } from "../types.js";
 import { ingestFile } from "../ingest/pipeline.js";
-import type { AppState } from "./status.js";
+
+// Define a simple state type for the CLI application (duplicate from app.ts for now, will refactor later if needed)
+interface CliAppState {
+  state: "initializing" | "idle" | "generating" | "error" | "retrieving";
+  statusMsg: string;
+  errorMsg: string;
+  completedMessages: ChatMessage[];
+  lastSources: RetrievalResult[];
+}
 
 export interface SlashCommandCallbacks {
   addSystemMsg: (content: string) => void;
-  setCompletedMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  setLastSources: React.Dispatch<React.SetStateAction<RetrievalResult[]>>;
-  setAppState: React.Dispatch<React.SetStateAction<AppState>>;
-  setStatusMsg: React.Dispatch<React.SetStateAction<string>>;
+  setCompletedMessages: (messages: ChatMessage[]) => void;
+  setLastSources: (sources: RetrievalResult[]) => void;
+  setAppState: (state: CliAppState["state"]) => void;
+  setStatusMsg: (msg: string) => void;
   exit: () => void;
-  lastSources: RetrievalResult[]; // Added this line
+  lastSources: RetrievalResult[];
 }
 
 export async function processSlashCommand(

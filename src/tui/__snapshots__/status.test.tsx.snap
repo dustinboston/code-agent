@@ -1,7 +1,0 @@
-// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
-
-exports[`StatusBar > renders 'generating' state with sources count 1`] = `"⠋ Generating response... · 3 sources found"`;
-
-exports[`StatusBar > renders 'initializing' state with a custom message 1`] = `"⠋ Connecting to services..."`;
-
-exports[`StatusBar > renders 'retrieving' state with default message 1`] = `"⠋ Searching knowledge base..."`;

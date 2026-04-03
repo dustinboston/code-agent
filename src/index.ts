@@ -9,10 +9,8 @@
  * The default action (no sub-command) launches team mode.
  */
 import { Command } from "commander";
-import { render } from "ink";
-import React from "react";
 import { loadConfig, validateConfig } from "./config.js";
-import { App } from "./tui/app.js";
+import { startApp } from "./tui/app.js";
 import { ingestCommand } from "./commands/ingest.js";
 import { configCommand } from "./commands/config.js";
 import { storeCommand } from "./commands/store.js";
@@ -32,7 +30,7 @@ program
   .action(() => {
     const config = loadConfig();
     validateConfig(config);
-    render(React.createElement(App, { config }));
+    startApp(config);
   });
 
 program.addCommand(ingestCommand);
