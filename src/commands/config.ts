@@ -19,7 +19,7 @@ import { loadConfig } from "../config.js";
  *
  * @example
  * ```bash
- * npx rag-starter config
+ * npx code-agent config
  * ```
  */
 export const configCommand = new Command("config")

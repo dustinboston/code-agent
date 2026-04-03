@@ -1,13 +1,13 @@
 {
-  "name": "rag-starter",
+  "name": "code-agent",
   "version": "0.1.0",
-  "description": "TypeScript RAG starter — interactive CLI chat with LangChain, Pinecone, and Claude",
+  "description": "Code Agent - Interactive CLI chat with LangChain, Pinecone, and Claude",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "bin": {
-    "rag-starter": "./dist/index.js"
+    "code-agent": "./dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.ts",

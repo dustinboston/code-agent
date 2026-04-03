@@ -28,8 +28,8 @@ import type { AppConfig } from "../types.js";
  *
  * @example
  * ```bash
- * npx rag-starter ingest ./docs/readme.md
- * npx rag-starter ingest ./report.pdf --chunk-size 500 --chunk-overlap 50
+ * npx code-agent ingest ./docs/readme.md
+ * npx code-agent ingest ./report.pdf --chunk-size 500 --chunk-overlap 50
  * ```
  */
 export const ingestCommand = new Command("ingest")

@@ -22,7 +22,7 @@ import { App } from "../tui/app.js";
  *
  * @example
  * ```bash
- * npx rag-starter team
+ * npx code-agent team
  * ```
  */
 export const teamCommand = new Command("team")

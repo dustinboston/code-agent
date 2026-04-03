@@ -1,11 +1,11 @@
 /**
  * @module config
  *
- * Layered configuration resolution for the RAG Starter application.
+ * Layered configuration resolution for the Code Agent application.
  *
  * Configuration is assembled from four sources in ascending priority order:
  * 1. Built-in {@link DEFAULTS} — always present.
- * 2. `rag-starter.config.json` in the working directory — optional file override.
+ * 2. `code-agent.config.json` in the working directory — optional file override.
  * 3. Environment variables (e.g. `PINECONE_INDEX`) — loaded via `dotenv`.
  * 4. CLI-supplied overrides passed directly to {@link loadConfig}.
  *
@@ -70,7 +70,7 @@ const DEFAULTS: AppConfig = {
 };
 
 /**
- * Attempts to read and parse `rag-starter.config.json` from the current
+ * Attempts to read and parse `code-agent.config.json` from the current
  * working directory.
  *
  * Returns an empty object when the file does not exist or cannot be parsed,
@@ -80,12 +80,12 @@ const DEFAULTS: AppConfig = {
  *   the JSON file, or `{}` if the file is absent or malformed.
  */
 function loadFileConfig(): Partial<AppConfig> {
-  const configPath = resolve("./rag-starter.config.json");
+  const configPath = resolve("./code-agent.config.json");
   if (!existsSync(configPath)) return {};
   try {
     return JSON.parse(readFileSync(configPath, "utf-8")) as Partial<AppConfig>;
   } catch {
-    console.warn("Warning: could not parse rag-starter.config.json, using defaults.");
+    console.warn("Warning: could not parse code-agent.config.json, using defaults.");
     return {};
   }
 }
@@ -123,7 +123,7 @@ function deepMerge<T extends object>(...objects: Array<Partial<T>>): T {
  * Resolves the application configuration by merging all config sources.
  *
  * Sources are applied in the following priority order (lowest → highest):
- * built-in defaults → `rag-starter.config.json` → environment variables →
+ * built-in defaults → `code-agent.config.json` → environment variables →
  * the `overrides` argument.
  *
  * @param overrides - Optional partial config supplied by CLI flags or tests.

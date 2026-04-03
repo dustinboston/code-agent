@@ -54,7 +54,7 @@ export async function retrieve(
 
   if (results.length === 0) {
     return {
-      context: "No documents have been ingested yet. Run `rag-starter ingest <path>` first.",
+      context: "No documents have been ingested yet. Run `code-agent ingest <path>` first.",
       sources: [],
     };
   }

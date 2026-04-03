@@ -1,17 +1,17 @@
-# RAG Starter — Technical Specification
+# Code Agent — Technical Specification
 
 ## Architecture
 
 The application follows a pipeline architecture with four main stages:
 
-```
+```text
 Ingest:   Files → Loader → Chunker → Embedder → Vector Store
 Query:    Input → Embedder → Vector Store → Retriever → Prompt Builder → LLM → TUI
 ```
 
 Each stage is a separate module. LangChain.js provides the core abstractions (document loaders, text splitters, embeddings, vector stores, chains) so each module is thin — mostly configuration and wiring.
 
-```
+```text
 src/
 ├── index.ts              # Entry point, CLI command routing
 ├── config.ts             # Configuration loading and validation
@@ -36,15 +36,18 @@ src/
 ## Technology Choices
 
 ### Runtime & Language
+
 - **TypeScript** with strict mode, targeting ES2022+
 - **Node.js** ≥ 20 (for native fetch, top-level await, etc.)
 - **tsx** for development (run TypeScript directly without a build step)
 - **tsup** for building a distributable bundle (if needed)
 
 ### Package Manager
+
 - **pnpm** — fast, disk-efficient, strict dependency resolution
 
 ### TUI Framework
+
 - **Ink** (React for CLI) — component-based terminal UI built on React
   - Why: Declarative, composable, familiar mental model for anyone who knows React. Active ecosystem with good primitives (text input, spinner, box layout).
   - Alternatives considered: Blessed/neo-blessed (powerful but unmaintained), Bubbletea (Go-only), raw ANSI escape codes (too low-level).
@@ -54,6 +57,7 @@ src/
 - **cli-highlight** — syntax highlighting for code blocks
 
 ### AI / LLM Orchestration
+
 - **LangChain.js** (`langchain`, `@langchain/core`, `@langchain/anthropic`, `@langchain/pinecone`, `@langchain/community`) — the orchestration framework that ties everything together
   - Why: Provides standardized abstractions for the entire RAG pipeline — document loading, text splitting, embeddings, vector stores, retrieval chains, prompt templates, and LLM interaction. Reduces boilerplate, makes components swappable, and follows established patterns.
   - `@langchain/anthropic` — `ChatAnthropic` model wrapper with streaming support
@@ -62,12 +66,14 @@ src/
   - Why: Widely used, affordable, good quality for general-purpose retrieval. LangChain makes it trivial to swap to another embedding provider later.
 
 ### Vector Store
+
 - **Pinecone** via `@langchain/pinecone` + `@pinecone-database/pinecone`
   - Why: Managed vector database — no infrastructure to maintain, generous free tier (up to 5M vectors), fast similarity search, metadata filtering. Accessed through LangChain's `PineconeVectorStore` for a clean integration.
   - Free tier is sufficient for a starter project
   - Requires creating an index in the Pinecone dashboard (one-time setup)
 
 ### Document Loading
+
 - **LangChain document loaders**:
   - `PDFLoader` (from `@langchain/community/document_loaders/fs/pdf`) — PDF text extraction
   - `TextLoader` — plain text files
@@ -76,10 +82,12 @@ src/
   - `RecursiveCharacterTextSplitter` — default chunking strategy with configurable size and overlap
 
 ### CLI Framework
+
 - **Commander.js** — for top-level CLI commands (`ingest`, `chat`, `config`)
   - Why: Lightweight, well-documented, TypeScript-friendly. Overkill alternatives (oclif) aren't needed for a starter.
 
 ### Testing
+
 - **Vitest** — fast, TypeScript-native, compatible with the ecosystem
 
 ## Core Types
@@ -155,7 +163,7 @@ interface AppConfig {
 
 ### Ingestion Flow
 
-1. User runs `rag-starter ingest ./docs/my-file.pdf`
+1. User runs `code-agent ingest ./docs/my-file.pdf`
 2. **LangChain Loader** (`PDFLoader`/`TextLoader`) reads the file and produces `Document` objects
 3. **LangChain Splitter** (`RecursiveCharacterTextSplitter`) splits into overlapping chunks (default: 1000 chars, 200 overlap)
 4. **LangChain + Pinecone** (`PineconeVectorStore.fromDocuments()`) embeds chunks via OpenAI and upserts vectors into Pinecone
@@ -163,7 +171,7 @@ interface AppConfig {
 
 ### Chat Flow
 
-1. User runs `rag-starter chat`
+1. User runs `code-agent chat`
 2. **TUI** renders: chat history pane, input field, status bar
 3. User types a question and presses Enter
 4. **Status** shows "Searching knowledge base..."
@@ -172,12 +180,12 @@ interface AppConfig {
    - `ChatPromptTemplate` constructs the prompt with retrieved context + conversation history
    - `ChatAnthropic` streams the response via `chain.stream()`
 6. **TUI** renders streamed tokens as they arrive
-9. **Chat** appends the full response (with source metadata) to history
-10. Loop returns to step 3
+7. **Chat** appends the full response (with source metadata) to history
+8. Loop returns to step 3
 
 ### Prompt Template
 
-```
+```text
 You are a helpful assistant. Answer the user's question based on the
 provided context. If the context doesn't contain enough information to
 answer, say so — do not make up information.
@@ -195,14 +203,14 @@ answer, say so — do not make up information.
 Configuration is resolved in this order (later overrides earlier):
 
 1. Built-in defaults (defined in `config.ts`)
-2. Config file: `./rag-starter.config.json` (optional)
+2. Config file: `./code-agent.config.json` (optional)
 3. Environment variables (loaded from `.env` via `dotenv`)
 4. CLI flags
 
 ### Environment Variables
 
 | Variable | Required | Description |
-|---|---|---|
+| --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Yes | API key for Claude (LLM) |
 | `OPENAI_API_KEY` | Yes | API key for OpenAI embeddings |
 | `PINECONE_API_KEY` | Yes | API key for Pinecone vector database |
@@ -210,28 +218,28 @@ Configuration is resolved in this order (later overrides earlier):
 
 ### CLI Commands
 
-```
-rag-starter ingest <path>       Ingest a file or directory into the knowledge base
+```text
+code-agent ingest <path>       Ingest a file or directory into the knowledge base
   --chunk-size <n>              Override chunk size (default: 1000)
   --chunk-overlap <n>           Override chunk overlap (default: 200)
 
-rag-starter chat                Start an interactive chat session
+code-agent chat                Start an interactive chat session
   --top-k <n>                   Number of chunks to retrieve (default: 5)
   --model <name>                Override LLM model
   --no-stream                   Disable streaming (wait for full response)
 
-rag-starter config              Show current configuration
-rag-starter config reset        Reset to defaults
+code-agent config              Show current configuration
+code-agent config reset        Reset to defaults
 
-rag-starter store list          List ingested documents
-rag-starter store clear         Clear the vector store
+code-agent store list          List ingested documents
+code-agent store clear         Clear the vector store
 ```
 
 ## Data Storage
 
 Vectors and embeddings are stored in **Pinecone** (cloud-hosted). Local data is minimal:
 
-```
+```text
 data/
 ├── documents/              # Local metadata cache for ingested documents
 │   └── {id}.json           # Source path, chunk count, ingestion timestamp
@@ -241,6 +249,7 @@ data/
 ### Pinecone Setup
 
 Users must create a Pinecone index before first use:
+
 1. Sign up at pinecone.io (free tier available)
 2. Create an index with dimensions matching the embedding model (1536 for `text-embedding-3-small`)
 3. Use cosine similarity as the metric

@@ -1,7 +1,7 @@
 /**
  * @module types
  *
- * Shared TypeScript types and interfaces used throughout the RAG Starter
+ * Shared TypeScript types and interfaces used throughout the Code Agent
  * application. Centralising them here prevents circular imports and makes
  * the data model easy to discover.
  */
@@ -78,7 +78,7 @@ export type Provider = "anthropic" | "openai" | "google";
  * Canonical configuration shape for the entire application.
  *
  * Values are resolved in layers (lowest → highest priority):
- * built-in defaults → `rag-starter.config.json` → environment variables →
+ * built-in defaults → `code-agent.config.json` → environment variables →
  * CLI flags. See {@link loadConfig} for the merge logic.
  */
 export interface AppConfig {

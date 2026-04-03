@@ -2,7 +2,7 @@
 /**
  * @module index
  *
- * CLI entry point for the RAG Starter application.
+ * CLI entry point for the Code Agent application.
  *
  * Registers all sub-commands (`ingest`, `chat`, `team`, `config`, `store`)
  * with Commander and delegates argument parsing to the framework.
@@ -23,8 +23,8 @@ import { teamCommand } from "./commands/team.js";
 const program = new Command();
 
 program
-  .name("rag-starter")
-  .description("Interactive RAG chat powered by LangChain, Pinecone, and Claude")
+  .name("code-agent")
+  .description("AI code editing assistant")
   .version("0.1.0");
 
 program.addCommand(ingestCommand);

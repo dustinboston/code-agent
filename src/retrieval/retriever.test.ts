@@ -90,7 +90,7 @@ content 3`);
     const result = await retrieve(mockStore, query, mockConfig);
 
     expect(mockStore.similaritySearchWithScore).toHaveBeenCalledWith(query, mockConfig.retrieval.topK);
-    expect(result.context).toBe('No documents have been ingested yet. Run `rag-starter ingest <path>` first.');
+    expect(result.context).toBe('No documents have been ingested yet. Run `code-agent ingest <path>` first.');
     expect(result.sources).toEqual([]);
   });
 });

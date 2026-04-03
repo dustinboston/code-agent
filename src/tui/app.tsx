@@ -1,7 +1,7 @@
 /**
  * @module tui/app
  *
- * Root Ink component for the RAG Starter TUI. Manages the full application
+ * Root Ink component for the Code Agent TUI. Manages the full application
  * lifecycle — Pinecone / LLM initialisation, user input handling, slash
  * commands, RAG retrieval, LLM streaming, and the multi-agent "team" mode
  * where a planner delegates to developer and tester sub-agents.
@@ -49,6 +49,7 @@ import type { ChatGoogle } from "@langchain/google";
  * @param onStatus - Callback invoked to update the TUI status bar.
  * @param agentName - Display name used in status and activity messages.
  * @param onActivity - Optional callback for detailed activity log lines.
+ * @param requestApproval - Optional callback to request user approval for commands.
  * @returns The full concatenated text the agent produced across all iterations.
  */
 async function runSubAgent(
@@ -207,6 +208,7 @@ async function runSubAgent(
  * @param tester - LLM instance for the tester sub-agent.
  * @param onStatus - Callback invoked to update the TUI status bar.
  * @param onActivity - Optional callback for detailed activity log lines.
+ * @param requestApproval - Optional callback to request user approval for commands.
  * @returns A LangChain `DynamicStructuredTool` that the planner can call.
  */
 function createSendMessageTool(
@@ -309,6 +311,11 @@ export function App({ config, mode = "chat" }: AppProps) {
   // Command approval queue
   const [pendingApprovals, setPendingApprovals] = useState<Array<{ command: string; resolve: (approved: boolean) => void }>>([]);
 
+  /**
+   * Prompts the user for approval to run a command.
+   * @param command - The command string that requires approval.
+   * @returns A promise that resolves to `true` if approved, `false` otherwise.
+   */
   const requestApproval = useCallback((command: string) => {
     return new Promise<boolean>((resolve) => {
       setPendingApprovals((prev) => [...prev, { command, resolve }]);
@@ -320,6 +327,11 @@ export function App({ config, mode = "chat" }: AppProps) {
   // that persists in the terminal scrollback without interfering with Ink's
   // cursor management of the dynamic render area below.
   const { write } = useStdout();
+  /**
+   * Writes a chat message to the standard output, formatted based on the message role.
+   * @param msg - The chat message object to write.
+   * @returns void
+   */
   const writeMsg = useCallback(
     (msg: ChatMessage) => {
       if (msg.role === "system") {
@@ -339,6 +351,11 @@ export function App({ config, mode = "chat" }: AppProps) {
     [write],
   );
 
+  /**
+   * Initializes the application for "team" mode, setting up the vector store
+   * and multiple LLM instances (planner, developer, tester).
+   * @returns Promise<void>
+   */
   const createTeam = async () => {
     try {
       const store = await createVectorStore(config);
@@ -357,6 +374,11 @@ export function App({ config, mode = "chat" }: AppProps) {
     }
   };
 
+  /**
+   * Initializes the application for "chat" mode, setting up the vector store
+   * and a single LLM instance.
+   * @returns Promise<void>
+   */
   const createChat = async () => {
     try {
       const store = await createVectorStore(config);
@@ -423,6 +445,11 @@ export function App({ config, mode = "chat" }: AppProps) {
 
   // ─── Slash command handler ─────────────────────────────────────────────────
 
+  /**
+   * Adds a system message to the chat history and displays it in the TUI.
+   * @param content - The content of the system message.
+   * @returns void
+   */
   const addSystemMsg = useCallback((content: string) => {
     const msg: ChatMessage = {
       id: randomUUID(),
@@ -434,6 +461,11 @@ export function App({ config, mode = "chat" }: AppProps) {
     setCompletedMessages((prev) => [...prev, msg].slice(-20));
   }, [writeMsg]);
 
+  /**
+   * Processes slash commands entered by the user (e.g., `/help`, `/clear`, `/ingest`).
+   * @param cmd - The full command string, including the leading slash.
+   * @returns Promise<void>
+   */
   const handleCommand = useCallback(
     async (cmd: string) => {
       const parts = cmd.slice(1).trim().split(/\s+/);
@@ -464,7 +496,8 @@ export function App({ config, mode = "chat" }: AppProps) {
         case "sources":
           if (lastSources.length === 0) {
             addSystemMsg("No sources from the last response.");
-          } else {
+          }
+          else {
             const lines = lastSources.map(
               (s, i) => `${i + 1}. ${s.source}\n   relevance: ${(s.score * 100).toFixed(0)}%`,
             );
@@ -512,6 +545,11 @@ export function App({ config, mode = "chat" }: AppProps) {
 
   // ─── Query submission ──────────────────────────────────────────────────────
 
+  /**
+   * Handles the submission of user input, either as a chat message or a slash command.
+   * @param value - The input string from the user.
+   * @returns Promise<void>
+   */
   const handleSubmit = useCallback(
     async (value: string) => {
       const trimmed = value.trim();
@@ -727,7 +765,7 @@ export function App({ config, mode = "chat" }: AppProps) {
         setAppState("error");
       }
     },
-    [appState, mode, vectorStore, llm, ragPrompt, config, completedMessages, handleCommand, writeMsg],
+    [appState, mode, vectorStore, llm, ragPrompt, config, completedMessages, handleCommand, writeMsg, requestApproval],
   );
 
   // ─── Render ────────────────────────────────────────────────────────────────

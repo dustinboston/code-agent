@@ -1,8 +1,8 @@
-# RAG Starter — Product Requirements Document
+# Code Agent — Product Requirements Document
 
 ## Overview
 
-RAG Starter is a TypeScript command-line application that provides an interactive, terminal-based chat interface powered by retrieval-augmented generation. Users can ingest documents into a local knowledge base, then have conversations where the LLM's responses are grounded in that knowledge.
+Code Agent is a TypeScript command-line application that provides an interactive, terminal-based chat interface powered by retrieval-augmented generation. Users can ingest documents into a local knowledge base, then have conversations where the LLM's responses are grounded in that knowledge.
 
 The project serves as a **starter template** — opinionated enough to be useful out of the box, but simple enough to understand, modify, and extend.
 
@@ -54,11 +54,11 @@ Developers learning about RAG who want a working, hackable starting point in Typ
 
 ### P1 — Quality of Life
 
-5. **Source attribution**
+1. **Source attribution**
    - Display which document(s) and chunk(s) informed each response
    - Show relevance scores alongside sources
 
-6. **Conversation commands**
+2. **Conversation commands**
    - `/clear` — reset conversation history
    - `/sources` — show sources for the last response
    - `/ingest <path>` — ingest a document without leaving the chat
@@ -66,7 +66,7 @@ Developers learning about RAG who want a working, hackable starting point in Typ
    - `/help` — list available commands
    - `/quit` — exit the application
 
-7. **TUI polish**
+3. **TUI polish**
    - Markdown rendering in the terminal (bold, code blocks, lists)
    - Syntax-highlighted code in responses
    - Loading/spinner indicators during retrieval and generation
@@ -74,9 +74,9 @@ Developers learning about RAG who want a working, hackable starting point in Typ
 
 ### P2 — Nice to Have
 
-8. **Multiple knowledge bases** — named collections that can be switched between
-9. **Chunk inspector** — a command to browse/search the vector store directly
-10. **Export** — save a conversation to a markdown file
+1. **Multiple knowledge bases** — named collections that can be switched between
+2. **Chunk inspector** — a command to browse/search the vector store directly
+3. **Export** — save a conversation to a markdown file
 
 ## Success Criteria
 

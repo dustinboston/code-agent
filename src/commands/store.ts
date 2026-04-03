@@ -25,7 +25,7 @@ import { Pinecone } from "@pinecone-database/pinecone";
  *
  * @example
  * ```bash
- * npx rag-starter store list
+ * npx code-agent store list
  * ```
  */
 const listCommand = new Command("list")
@@ -75,7 +75,7 @@ const listCommand = new Command("list")
  *
  * @example
  * ```bash
- * npx rag-starter store clear
+ * npx code-agent store clear
  * ```
  */
 const clearCommand = new Command("clear")
@@ -139,8 +139,8 @@ const clearCommand = new Command("clear")
  *
  * @example
  * ```bash
- * npx rag-starter store list
- * npx rag-starter store clear
+ * npx code-agent store list
+ * npx code-agent store clear
  * ```
  */
 export const storeCommand = new Command("store")
