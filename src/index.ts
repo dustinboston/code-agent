@@ -4,15 +4,18 @@
  *
  * CLI entry point for the Code Agent application.
  *
- * Registers all sub-commands (`ingest`, `chat`, `team`, `config`, `store`)
+ * Registers all sub-commands (`ingest`, `team`, `config`, `store`)
  * with Commander and delegates argument parsing to the framework.
+ * The default action (no sub-command) launches team mode.
  */
 import { Command } from "commander";
+import { render } from "ink";
+import React from "react";
+import { loadConfig, validateConfig } from "./config.js";
+import { App } from "./tui/app.js";
 import { ingestCommand } from "./commands/ingest.js";
-import { chatCommand } from "./commands/chat.js";
 import { configCommand } from "./commands/config.js";
 import { storeCommand } from "./commands/store.js";
-import { teamCommand } from "./commands/team.js";
 
 /**
  * Root Commander program instance.
@@ -25,11 +28,14 @@ const program = new Command();
 program
   .name("code-agent")
   .description("AI code editing assistant")
-  .version("0.1.0");
+  .version("0.1.0")
+  .action(() => {
+    const config = loadConfig();
+    validateConfig(config);
+    render(React.createElement(App, { config, mode: "team" }));
+  });
 
 program.addCommand(ingestCommand);
-program.addCommand(chatCommand);
-program.addCommand(teamCommand);
 program.addCommand(configCommand);
 program.addCommand(storeCommand);
 

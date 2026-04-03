@@ -7,19 +7,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Development (no build step needed)
 pnpm dev ingest <path/to/file>
-pnpm dev chat
-pnpm dev team
 pnpm dev config
 pnpm dev store list
 pnpm dev store clear
 
 # Build and run built output
 pnpm build
-pnpm start chat
+pnpm start
 
 # Tests
-pnpm test                        # watch mode
-pnpm test -- --run               # single run
+pnpm test                        # single run
 pnpm test -- src/path/to/file    # single file
 ```
 
