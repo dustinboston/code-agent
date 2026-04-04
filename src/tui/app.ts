@@ -278,7 +278,12 @@ async function generateResponse(
 }
 
 export async function startApp(config: AppConfig) {
-  const rl = readline.createInterface({ input: stdin, output: stdout });
+  const rl = readline.createInterface({
+    input: stdin,
+    output: stdout,
+    terminal: stdin.isTTY ?? false,
+    historySize: 1000,
+  });
   rl.on("SIGINT", () => {
     process.exit(0);
   });
