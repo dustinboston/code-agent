@@ -7,39 +7,6 @@
  */
 
 /**
- * Metadata record persisted to disk for every successfully ingested document.
- *
- * One JSON file per document is written to `<dataDir>/documents/<id>.json`
- * so that the `store list` command can display the registry without querying
- * Pinecone.
- */
-export interface IngestedDocument {
-  /** Unique identifier (UUID v4) assigned at ingest time. */
-  id: string;
-  /** Absolute file path of the original document. */
-  source: string;
-  /** File format detected from the extension, e.g. `"txt"`, `"md"`, `"pdf"`. */
-  format: string;
-  /** Number of text chunks that were embedded and upserted into Pinecone. */
-  chunkCount: number;
-  /** ISO 8601 timestamp recorded when the document was ingested. */
-  ingestedAt: string;
-}
-
-/**
- * A single chunk returned by a Pinecone similarity search, together with its
- * relevance score and the source document it came from.
- */
-export interface RetrievalResult {
-  /** Raw text content of the retrieved chunk. */
-  content: string;
-  /** Absolute path of the source document this chunk belongs to. */
-  source: string;
-  /** Cosine similarity score in the range 0–1 (higher is more relevant). */
-  score: number;
-}
-
-/**
  * A single message in the chat conversation, as stored in React state and
  * written to the terminal via Ink.
  */
@@ -55,11 +22,6 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system" | "developer" | "tester"; // system = in-app notices
   /** Text body of the message. */
   content: string;
-  /**
-   * Retrieval results that grounded this response.
-   * Only present on `"assistant"` messages produced in chat mode.
-   */
-  sources?: RetrievalResult[];
   /** ISO 8601 timestamp recorded when the message was created. */
   timestamp: string;
 }

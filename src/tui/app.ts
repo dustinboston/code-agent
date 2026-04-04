@@ -13,7 +13,7 @@ import { readFileTool, listDirectoryTool } from "../tools/filesystem.js";
 import { createSendMessageTool } from "../generation/runner.js";
 import { processSlashCommand } from "./commands.js";
 import { printChatMessage } from "./format.js";
-import type { AppConfig, ChatMessage, RetrievalResult } from "../types.js";
+import type { AppConfig, ChatMessage } from "../types.js";
 import type { ChatOpenAI } from "@langchain/openai";
 import type { ChatGoogle } from "@langchain/google";
 
@@ -25,7 +25,6 @@ interface CliAppState {
   llm: Array<ChatAnthropic | ChatOpenAI | ChatGoogle>;
   chatPromptTemplate: ChatPromptTemplate | null;
   completedMessages: ChatMessage[];
-  lastSources: RetrievalResult[];
 }
 
 async function initializeApp(config: AppConfig): Promise<CliAppState> {
@@ -36,7 +35,6 @@ async function initializeApp(config: AppConfig): Promise<CliAppState> {
     llm: [],
     chatPromptTemplate: null,
     completedMessages: [],
-    lastSources: [],
   };
 
   try {
@@ -346,20 +344,10 @@ export async function startApp(config: AppConfig) {
         setCompletedMessages: (messages) => {
           appState.completedMessages = messages;
         },
-        setLastSources: (sources) => {
-          appState.lastSources = sources;
-        },
-        setAppState: (state) => {
-          appState.state = state;
-        },
-        setStatusMsg: (msg) => {
-          appState.statusMsg = msg;
-        },
         exit: () => {
           rl.close();
           process.exit(0);
         },
-        lastSources: appState.lastSources,
       });
       continue;
     }

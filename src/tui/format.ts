@@ -22,9 +22,6 @@ export function printChatMessage(write: (text: string) => void, msg: ChatMessage
   } else {
     write(chalk.bold.green("Planner") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
     write(`  ${msg.content}\n`);
-    if (msg.sources && msg.sources.length > 0) {
-      write(chalk.dim(`  Sources: ${msg.sources.map((s) => `${s.source} (${(s.score * 100).toFixed(0)}%)`).join(" · ")}\n`));
-    }
     write("\n");
   }
 }
