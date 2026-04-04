@@ -12,7 +12,8 @@
   "scripts": {
     "dev": "bun src/index.ts",
     "build": "bun build src/index.ts --compile --outfile bin/ca",
-    "test": "bun test"
+    "test": "bun test ./src/",
+    "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
     "@langchain/anthropic": "^1.0.0",

@@ -10,24 +10,14 @@ import { join } from "node:path";
  * Find the first agent file that exists in the root directory of the project.
  * @returns the content of an agent file or an empty string
  */
-export async function loadAgentsFile() {
+export async function loadAgentsFile(agents = ["AGENTS.md", "AGENT.md", "CLAUDE.md", "GEMINI.md", "README.md"]) {
   // Not using Promise.all, Promise.race, or Promise.any because we want to
   // return the first file that exists in the order below (deterministically).
 
-  const agentsFile = await readAgentsFile("AGENTS.md");
-  if (agentsFile) return agentsFile;
-
-  const agentFile = await readAgentsFile("AGENT.md");
-  if (agentFile) return agentFile;
-
-  const claudeFile = await readAgentsFile("CLAUDE.md");
-  if (claudeFile) return claudeFile;
-
-  const geminiFile = await readAgentsFile("GEMINI.md");
-  if (geminiFile) return geminiFile;
-
-  const readmeFile = await readAgentsFile("README.md");
-  if (readmeFile) return readmeFile;
+  for (const agent of agents) {
+    const agentsFile = await readAgentsFile(agent);
+    if (agentsFile) return agentsFile;
+  }
 
   return "";
 }

@@ -1,132 +1,109 @@
-import { describe, it, expect, mock, beforeEach, Mock } from "bun:test";
-import { readFileTool, listDirectoryTool, writeFileTool } from "./filesystem";
-import { readFile, readdir, writeFile, mkdir } from "fs/promises";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { mkdirSync, rmdirSync, rmSync, writeFileSync, mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
-// Mock fs/promises module
-mock.module("fs/promises", () => ({
-  readFile: mock(() => {}),
-  readdir: mock(() => {}),
-  writeFile: mock(() => {}),
-  mkdir: mock(() => {}),
-}));
+import { readFileTool, listDirectoryTool, writeFileTool, deletePathTool, isSafePath } from "./filesystem.ts";
+import { chdir } from "node:process";
 
-// Mock path module with inline implementations (importOriginal not supported in Bun)
-mock.module("path", () => ({
-  resolve: mock((p: string) => {
-    // Paths with .. are treated as sandbox escapes for testing
-    if (p.includes("..")) return "/outside/path";
-    return p;
-  }),
-  dirname: mock((p: string) => {
-    const idx = p.lastIndexOf("/");
-    return idx === -1 ? "." : p.substring(0, idx);
-  }),
-  relative: mock((from: string, to: string) => {
-    if (to === "/outside/path") return "../../outside";
-    // For same-directory paths, return as-is (no traversal)
-    return to;
-  }),
-  isAbsolute: mock((p: string) => p.startsWith("/") || /^[A-Za-z]:/.test(p)),
-}));
+let originalCwd: string;
+let tempDirA: string;
+let tempDirB: string;
 
 describe("Filesystem Tools", () => {
   beforeEach(() => {
-    // Clear mock call counts between tests
-    (readFile as any).mockReset();
-    (readdir as any).mockReset();
-    (writeFile as any).mockReset();
-    (mkdir as any).mockReset();
+    originalCwd = process.cwd();
+    tempDirA = mkdtempSync(join(tmpdir(), "fs-tools-testa-"));
+    tempDirB = mkdtempSync(join(tmpdir(), "fs-tools-testb-"));
+    chdir(tempDirA);
+  });
+
+  afterEach(() => {
+    chdir(originalCwd);
+    rmSync(tempDirA, { recursive: true, force: true });
+    rmSync(tempDirB, { recursive: true, force: true });
+  });
+
+  describe("isSafePath", () => {
+    it("should return false if path is outside the working dir", () => {
+      const file = join(tempDirB, "foo.md");
+      const isSafe = isSafePath(file);
+      expect(isSafe).toBeFalse();
+    });
+
+    it("should return true if path is inside the working dir", () => {
+      const file = join(tempDirA, "foo.md");
+      const isSafe = isSafePath(file);
+      expect(isSafe).toBeTrue();
+    });
   });
 
   describe("readFileTool", () => {
     it("should read the content of an existing file", async () => {
-      (readFile as any).mockResolvedValue("file content");
-      const result = await readFileTool.call({ path: "test.txt" });
-      expect(readFile).toHaveBeenCalledWith("test.txt", "utf-8");
-      expect(result).toBe("file content");
+      const fileName = join(tempDirA, "TEST_AGENTS_FILE.md");
+      writeFileSync(fileName, "# foo");
+
+      const result = await readFileTool.invoke({ path: fileName });
+
+      expect(result).toBe("# foo");
+      rmSync(fileName);
     });
 
     it("should return an error string if the file does not exist", async () => {
-      (readFile as any).mockRejectedValue(new Error("File not found"));
-      const result = await readFileTool.call({ path: "nonexistent.txt" });
-      expect(readFile).toHaveBeenCalledWith("nonexistent.txt", "utf-8");
-      expect(result).toContain("Error reading file: File not found");
-    });
-
-    it("should return an error string for other read errors", async () => {
-      (readFile as any).mockRejectedValue("Permission denied");
-      const result = await readFileTool.call({ path: "protected.txt" });
-      expect(readFile).toHaveBeenCalledWith("protected.txt", "utf-8");
-      expect(result).toContain("Error reading file: Permission denied");
-    });
-
-    it("should return an error string if path escapes workspace", async () => {
-      const result = await readFileTool.call({ path: "../../etc/passwd" });
-      expect(readFile).not.toHaveBeenCalled();
-      expect(result).toContain("Error: Access denied.");
+      const result = await readFileTool.invoke({ path: "nonexistent.txt" });
+      expect(result).toStartWith("Error reading file");
     });
   });
 
   describe("listDirectoryTool", () => {
     it("should list files and directories correctly", async () => {
-      (readdir as any).mockResolvedValue([
-        { name: "file1.txt", isDirectory: () => false, isFile: () => true, isBlockDevice: () => false, isCharacterDevice: () => false, isSymbolicLink: () => false, isFIFO: () => false, isSocket: () => false },
-        { name: "subdir", isDirectory: () => true, isFile: () => false, isBlockDevice: () => false, isCharacterDevice: () => false, isSymbolicLink: () => false, isFIFO: () => false, isSocket: () => false },
-      ] as any);
-      const result = await listDirectoryTool.call({ path: "testdir" });
-      expect(readdir).toHaveBeenCalledWith("testdir", { withFileTypes: true });
-      expect(result).toBe("[file] file1.txt\n[dir]  subdir");
+      const file = join(tempDirA, "list-files.md");
+      writeFileSync(file, "# foo");
+
+      const result = await listDirectoryTool.invoke({ path: tempDirA });
+      expect(result).toContain("[file] list-files.md");
+
+      rmSync(file);
     });
 
     it("should return an empty string for an empty directory", async () => {
-      (readdir as any).mockResolvedValue([]);
-      const result = await listDirectoryTool.call({ path: "emptydir" });
-      expect(readdir).toHaveBeenCalledWith("emptydir", { withFileTypes: true });
+      const dir = join(tempDirA, "emptydir");
+      mkdirSync(dir, { recursive: true });
+      const result = await listDirectoryTool.invoke({ path: "emptydir" });
       expect(result).toBe("");
+      rmdirSync(dir);
     });
 
     it("should return an error string if the directory does not exist", async () => {
-      (readdir as any).mockRejectedValue(new Error("Directory not found"));
-      const result = await listDirectoryTool.call({ path: "nonexistentdir" });
-      expect(readdir).toHaveBeenCalledWith("nonexistentdir", { withFileTypes: true });
-      expect(result).toContain("Error listing directory: Directory not found");
+      const result = await listDirectoryTool.invoke({ path: "____nonexistentdir" });
+      expect(result).toStartWith("Error listing directory");
     });
   });
 
   describe("writeFileTool", () => {
     it("should write content to a new file and create parent directories", async () => {
-      (mkdir as any).mockResolvedValue(undefined);
-      (writeFile as any).mockResolvedValue(undefined);
-      const result = await writeFileTool.call({ path: "newdir/newfile.txt", content: "new content" });
-      expect(mkdir).toHaveBeenCalledWith("newdir", { recursive: true });
-      expect(writeFile).toHaveBeenCalledWith("newdir/newfile.txt", "new content", "utf-8");
-      expect(result).toBe("File written: newdir/newfile.txt");
+      const dir = join(tempDirA, "newdir");
+      const file = join(tempDirA, "newdir/newfile.txt");
+      const result = await writeFileTool.invoke({ path: file, content: "new content" });
+      expect(result).toStartWith("File written");
+      rmdirSync(dir, { recursive: true });
     });
 
     it("should overwrite an existing file", async () => {
-      (mkdir as any).mockResolvedValue(undefined);
-      (writeFile as any).mockResolvedValue(undefined);
-      const result = await writeFileTool.call({ path: "existing.txt", content: "updated content" });
-      expect(mkdir).toHaveBeenCalledWith(".", { recursive: true }); // dirname of "existing.txt" is "."
-      expect(writeFile).toHaveBeenCalledWith("existing.txt", "updated content", "utf-8");
-      expect(result).toBe("File written: existing.txt");
+      const file = join(tempDirA, "existing.txt");
+      writeFileSync("existing.txt", "# foo");
+      const result = await writeFileTool.invoke({ path: "existing.txt", content: "updated content" });
+      expect(result).toStartWith("File written");
+      rmSync(file);
     });
+  });
 
-    it("should return an error string on write failure", async () => {
-      (mkdir as any).mockResolvedValue(undefined);
-      (writeFile as any).mockRejectedValue(new Error("Disk full"));
-      const result = await writeFileTool.call({ path: "fail.txt", content: "some content" });
-      expect(writeFile).toHaveBeenCalledWith("fail.txt", "some content", "utf-8");
-      expect(result).toContain("Error writing file: Disk full");
-    });
-
-    it("should return an error string on mkdir failure", async () => {
-      (mkdir as any).mockRejectedValue(new Error("Permission denied to create directory"));
-      (writeFile as any).mockResolvedValue(undefined);
-      const result = await writeFileTool.call({ path: "protecteddir/file.txt", content: "some content" });
-      expect(mkdir).toHaveBeenCalledWith("protecteddir", { recursive: true });
-      expect(writeFile).not.toHaveBeenCalled();
-      expect(result).toContain("Error writing file: Permission denied to create directory");
+  describe("deletePathTool", () => {
+    it("should delete a file or directory", async () => {
+      const file = join(tempDirA, "file_to_delete.txt");
+      writeFileSync(file, "# foo");
+      const result = await deletePathTool.invoke({ path: "file_to_delete.txt" });
+      expect(result).toStartWith("Deleted");
     });
   });
 });

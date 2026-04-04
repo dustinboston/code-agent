@@ -8,17 +8,18 @@
  */
 import { tool, type DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
-import { readFile, readdir, writeFile, mkdir, rm } from "fs/promises";
 import { resolve, dirname, relative, isAbsolute } from "path";
+import { readFile, rm, readdir, mkdir, writeFile } from "fs/promises";
 
 /**
  * Ensures the resolved path resides within the current working directory.
  * Prevents path traversal attacks (e.g., passing "../../etc/passwd").
  */
-function isSafePath(targetPath: string): boolean {
+export function isSafePath(targetPath: string): boolean {
   const resolved = resolve(targetPath);
-  const rel = relative(process.cwd(), resolved);
-  return !rel.startsWith("..") && !isAbsolute(rel);
+  const rootPath = process.cwd();
+  if (resolved === rootPath) return true;
+  return resolved.startsWith(rootPath);
 }
 
 /**
@@ -46,7 +47,7 @@ export const readFileTool = tool(
     schema: z.object({
       path: z.string().describe("Path to the file"),
     }),
-  }
+  },
 );
 
 /**
@@ -74,7 +75,7 @@ export const listDirectoryTool = tool(
     schema: z.object({
       path: z.string().describe("Path to the directory"),
     }),
-  }
+  },
 );
 
 /**
@@ -104,7 +105,7 @@ export const writeFileTool = tool(
       path: z.string().describe("Path to the file"),
       content: z.string().describe("Content to write"),
     }),
-  }
+  },
 );
 
 /**
@@ -131,7 +132,7 @@ export const deletePathTool = tool(
     schema: z.object({
       path: z.string().describe("Path to the file or directory to delete"),
     }),
-  }
+  },
 );
 
 /**
@@ -140,4 +141,9 @@ export const deletePathTool = tool(
  * passed to `llm.bindTools(filesystemTools)` in a single expression when
  * wiring up an LLM agent.
  */
-export const filesystemTools: DynamicStructuredTool[] = [readFileTool, listDirectoryTool, writeFileTool, deletePathTool];
+export const filesystemTools: DynamicStructuredTool[] = [
+  readFileTool,
+  listDirectoryTool,
+  writeFileTool,
+  deletePathTool,
+];

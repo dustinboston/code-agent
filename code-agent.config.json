@@ -7,15 +7,15 @@
   },
   "developer": {
     "provider": "google",
-    "model": "gemini-2.5-flash",
+    "model": "gemini-3.1-pro-preview",
     "temperature": 0.3,
     "maxTokens": 1048576
   },
   "tester": {
     "provider": "google",
-    "model": "gemini-2.5-flash",
+    "model": "gemini-3.1-pro-preview",
     "temperature": 0.3,
     "maxTokens": 1048576
   },
-  "allowedCommands": ["^bun test"]
+  "allowedCommands": ["^bun test", "^bun run typecheck"]
 }
