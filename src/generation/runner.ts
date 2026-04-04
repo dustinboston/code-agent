@@ -10,52 +10,52 @@ import { tool } from "@langchain/core/tools";
 import { filesystemTools, readFileTool, listDirectoryTool, writeFileTool, deletePathTool } from "../tools/filesystem.js";
 import { runCommandTool } from "../tools/shell.js";
 import { createDeveloperPrompt, createTesterPrompt } from "../generation/prompt.js";
+import type { DynamicStructuredTool } from "@langchain/core/tools";
 
-// ─── Sub-agent runner ──────────────────────────────────────────────────────────
+// ─── Agent loop runner ─────────────────────────────────────────────────────────
 
-/**
- * Runs a single sub-agent (developer or tester) in an agentic tool-use loop.
- *
- * Each iteration streams one LLM response. If the response contains tool
- * calls, every tool is invoked and its result is appended to the message
- * history before the next iteration begins. The loop exits when the model
- * produces a response with no tool calls — i.e. it has finished its task and
- * is reporting back in plain text.
- *
- * @param agent - The LLM instance that powers this sub-agent.
- * @param agentTools - Array of LangChain tools the agent is allowed to call.
- * @param promptFn - Factory that returns the agent's system prompt template.
- * @param message - The task description from the planner.
- * @param onStatus - Callback invoked to update the TUI status bar.
- * @param agentName - Display name used in status and activity messages.
- * @param onActivity - Optional callback for detailed activity log lines.
- * @param requestApproval - Optional callback to request user approval for commands.
- * @returns The full concatenated text the agent produced across all iterations.
- */
-export async function runSubAgent(
+interface RunAgentLoopCallbacks {
+  onChunk?: (chunk: AIMessageChunk, iterationText: string) => void;
+  onTurnComplete?: (
+    accChunk: AIMessageChunk,
+    iterationText: string,
+    invokeMessages: BaseMessage[],
+  ) => Promise<BaseMessage[]>;
+  onToolCall?: (toolCall: any) => void;
+  onActivity?: (line: string) => void;
+  onStatus?: (msg: string) => void;
+  requestApproval?: (command: string) => Promise<boolean>;
+  onAgentMessage?: (agentName: string, message: string) => Promise<void>;
+  agentName: string;
+  agentTools: DynamicStructuredTool[];
+}
+
+export async function runAgentLoop(
   agent: ChatAnthropic | ChatOpenAI | ChatGoogle,
-  agentTools: typeof filesystemTools,
-  promptFn: () => ReturnType<typeof createDeveloperPrompt>,
-  message: string,
-  onStatus: (msg: string) => void,
-  agentName: string,
-  onActivity?: (line: string) => void,
-  requestApproval?: (command: string) => Promise<boolean>,
-  onAgentMessage?: (agentName: string, message: string) => Promise<void>,
-): Promise<string> {
-  const agentWithTools = agent.bindTools(agentTools);
-  const prompt = await promptFn();
-  const promptMessages = await prompt.formatMessages({ input: message });
-  const invokeMessages: BaseMessage[] = [...promptMessages];
+  invokeMessages: BaseMessage[],
+  callbacks: RunAgentLoopCallbacks,
+): Promise<BaseMessage[]> {
+  const {
+    onChunk,
+    onTurnComplete,
+    onToolCall,
+    onActivity,
+    onStatus,
+    requestApproval,
+    onAgentMessage,
+    agentName,
+    agentTools,
+  } = callbacks;
+
+  let currentInvokeMessages = [...invokeMessages];
   let fullText = "";
 
   while (true) {
-    // Stream one LLM turn, accumulating chunks into a single AIMessageChunk
-    // so we can inspect tool_calls after the stream ends.
     let accChunk: AIMessageChunk | null = null;
-    let iterText = "";
+    let iterationText = "";
     let announcedTools = new Set<string>();
-    const stream = await agentWithTools.stream(invokeMessages);
+
+    const stream = await agent.stream(currentInvokeMessages);
     for await (const chunk of stream) {
       const c = chunk as AIMessageChunk;
       accChunk = accChunk ? (accChunk.concat(c) as AIMessageChunk) : c;
@@ -76,20 +76,19 @@ export async function runSubAgent(
           : Array.isArray(c.content)
             ? c.content.map((p) => (typeof p === "string" ? p : "text" in p ? p.text : "")).join("")
             : "";
-      iterText += text;
+      iterationText += text;
       fullText += text;
+
+      onChunk?.(c, iterationText);
     }
 
     if (!accChunk) break;
 
-    // Surface full agent text as a top-level message
-    if (onAgentMessage && iterText.trim()) {
-      await onAgentMessage(agentName, iterText.trim());
+    if (onAgentMessage && iterationText.trim()) {
+      await onAgentMessage(agentName, iterationText.trim());
     }
 
-    // Append the assistant turn. AIMessageChunk must be converted to AIMessage
-    // so Anthropic serializes tool_calls in the expected format.
-    invokeMessages.push(
+    currentInvokeMessages.push(
       new AIMessage({
         content: accChunk.content,
         tool_calls: accChunk.tool_calls,
@@ -99,9 +98,14 @@ export async function runSubAgent(
     );
 
     const toolCalls = accChunk.tool_calls ?? [];
-    if (toolCalls.length === 0) break; // no tool calls → agent is done
+    if (toolCalls.length === 0) break;
 
-    onStatus(`${agentName} using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`);
+    onStatus?.(`${agentName} using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`);
+
+    for (const tc of toolCalls) {
+      onToolCall?.(tc);
+    }
+
     const toolMessages = await Promise.all(
       toolCalls.map(async (toolCall) => {
         if (onActivity) {
@@ -140,8 +144,6 @@ export async function runSubAgent(
           try {
             toolMsg = (await toolFn.invoke(toolCall)) as ToolMessage;
           } catch (e) {
-            // Return the error as a ToolMessage so the agent can self-correct
-            // rather than crashing the whole team loop.
             const errorMsg = `Tool error: ${e instanceof Error ? e.message : String(e)}`;
             if (onActivity) onActivity(chalk.red(`    ⚠ ${errorMsg.slice(0, 500)}`));
             toolMsg = new ToolMessage({
@@ -151,19 +153,90 @@ export async function runSubAgent(
             });
           }
         }
-        
+
         if (
-          typeof toolMsg.content === "string" && 
+          typeof toolMsg.content === "string" &&
           (toolMsg.content.startsWith("Error ") || toolMsg.content.startsWith("Tool error:"))
         ) {
           if (onActivity) onActivity(chalk.red(`    ⚠ ${toolMsg.content.slice(0, 150)}`));
         }
 
         return toolMsg;
-      })
+      }),
     );
-    invokeMessages.push(...toolMessages);
+    currentInvokeMessages.push(...toolMessages);
+
+    if (onTurnComplete) {
+      currentInvokeMessages = await onTurnComplete(accChunk, iterationText, currentInvokeMessages);
+    }
   }
+  return currentInvokeMessages;
+}
+
+// ─── Sub-agent runner ──────────────────────────────────────────────────────────
+
+/**
+ * Runs a single sub-agent (developer or tester) in an agentic tool-use loop.
+ *
+ * Each iteration streams one LLM response. If the response contains tool
+ * calls, every tool is invoked and its result is appended to the message
+ * history before the next iteration begins. The loop exits when the model
+ * produces a response with no tool calls — i.e. it has finished its task and
+ * is reporting back in plain text.
+ *
+ * @param agent - The LLM instance that powers this sub-agent.
+ * @param agentTools - Array of LangChain tools the agent is allowed to call.
+ * @param promptFn - Factory that returns the agent's system prompt template.
+ * @param message - The task description from the planner.
+ * @param onStatus - Callback invoked to update the TUI status bar.
+ * @param agentName - Display name used in status and activity messages.
+ * @param onActivity - Optional callback for detailed activity log lines.
+ * @param requestApproval - Optional callback to request user approval for commands.
+ * @returns The full concatenated text the agent produced across all iterations.
+ */
+export async function runSubAgent(
+  agent: ChatAnthropic | ChatOpenAI | ChatGoogle,
+  agentTools: typeof filesystemTools,
+  promptFn: () => ReturnType<typeof createDeveloperPrompt>,
+  message: string,
+  onStatus: (msg: string) => void,
+  agentName: string,
+  onActivity?: (line: string) => void,
+  requestApproval?: (command: string) => Promise<boolean>,
+  onAgentMessage?: (agentName: string, message: string) => Promise<void>,
+): Promise<string> {
+  const agentWithTools = agent.bindTools(agentTools);
+  const prompt = await promptFn();
+  const promptMessages = await prompt.formatMessages({ input: message });
+  let fullText = "";
+
+  const updatedInvokeMessages = await runAgentLoop(
+    agentWithTools,
+    promptMessages,
+    {
+      onChunk: (c, iterText) => {
+        const text =
+          typeof c.content === "string"
+            ? c.content
+            : Array.isArray(c.content)
+              ? c.content.map((p) => (typeof p === "string" ? p : "text" in p ? p.text : "")).join("")
+              : "";
+        fullText += text;
+      },
+      onTurnComplete: async (accChunk, iterationText, currentInvokeMessages) => {
+        if (onAgentMessage && iterationText.trim()) {
+          await onAgentMessage(agentName, iterationText.trim());
+        }
+        return currentInvokeMessages;
+      },
+      onActivity,
+      onStatus,
+      requestApproval,
+      onAgentMessage,
+      agentName,
+      agentTools,
+    },
+  );
 
   return fullText;
 }

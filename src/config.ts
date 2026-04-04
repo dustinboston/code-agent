@@ -105,10 +105,15 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
  * message is printed to `stderr` and the process exits with code `1`.
  */
 export function validateConfig(config: AppConfig): void {
+  const required: Set<string> = new Set();
+  required.add(config.planner.provider);
+  required.add(config.developer.provider);
+  required.add(config.tester.provider);
+
   const missing: string[] = [];
-  if (!process.env.ANTHROPIC_API_KEY) missing.push("ANTHROPIC_API_KEY");
-  if (!process.env.OPENAI_API_KEY) missing.push("OPENAI_API_KEY");
-  if (!process.env.GOOGLE_API_KEY) missing.push("GOOGLE_API_KEY");
+  if (required.has("anthropic") && !process.env.ANTHROPIC_API_KEY) missing.push("ANTHROPIC_API_KEY");
+  if (required.has("openai") && !process.env.OPENAI_API_KEY) missing.push("OPENAI_API_KEY");
+  if (required.has("google") && !process.env.GOOGLE_API_KEY) missing.push("GOOGLE_API_KEY");
 
   if (missing.length > 0) {
     console.error(`\nMissing required environment variables:\n  ${missing.join("\n  ")}`);

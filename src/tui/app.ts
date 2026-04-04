@@ -17,7 +17,16 @@ import type { AppConfig, ChatMessage } from "../types.js";
 import type { ChatOpenAI } from "@langchain/openai";
 import type { ChatGoogle } from "@langchain/google";
 
-// Define a simple state type for the CLI application
+/**
+ * @interface CliAppState
+ * @description Defines the structure for the CLI application's state.
+ * @property {("initializing" | "idle" | "generating" | "error" | "retrieving")} state - The current operational state of the application.
+ * @property {string} statusMsg - A message indicating the current status or ongoing operation.
+ * @property {string} errorMsg - An error message if the application is in an error state.
+ * @property {Array<ChatAnthropic | ChatOpenAI | ChatGoogle>} llm - An array of language model instances used by the application.
+ * @property {ChatPromptTemplate | null} chatPromptTemplate - The chat prompt template used for generating responses.
+ * @property {ChatMessage[]} completedMessages - An array of messages that have been completed in the chat.
+ */
 interface CliAppState {
   state: "initializing" | "idle" | "generating" | "error" | "retrieving";
   statusMsg: string;
@@ -27,6 +36,13 @@ interface CliAppState {
   completedMessages: ChatMessage[];
 }
 
+/**
+ * @async
+ * @function initializeApp
+ * @description Initializes the CLI application by setting up the language models and chat prompt template.
+ * @param {AppConfig} config - The application configuration object.
+ * @returns {Promise<CliAppState>} A promise that resolves to the initialized application state.
+ */
 async function initializeApp(config: AppConfig): Promise<CliAppState> {
   const appState: CliAppState = {
     state: "initializing",
@@ -56,6 +72,16 @@ async function initializeApp(config: AppConfig): Promise<CliAppState> {
   return appState;
 }
 
+/**
+ * @async
+ * @function generateResponse
+ * @description Generates a response from the language model based on user input and updates the application state.
+ * @param {string} trimmedInput - The user's trimmed input string.
+ * @param {CliAppState} appState - The current state of the CLI application.
+ * @param {readline.Interface} rl - The readline interface for user interaction.
+ * @param {AppConfig} config - The application configuration object.
+ * @returns {Promise<void>} A promise that resolves when the response generation is complete.
+ */
 async function generateResponse(
   trimmedInput: string,
   appState: CliAppState,
@@ -275,6 +301,13 @@ async function generateResponse(
   }
 }
 
+/**
+ * @async
+ * @function startApp
+ * @description Starts the main loop of the CLI application, handling user input and generating responses.
+ * @param {AppConfig} config - The application configuration object.
+ * @returns {Promise<void>} A promise that resolves when the application exits.
+ */
 export async function startApp(config: AppConfig) {
   const rl = readline.createInterface({
     input: stdin,
