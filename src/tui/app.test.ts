@@ -8,13 +8,16 @@ import { processSlashCommand, SlashCommandCallbacks } from "./commands";
 import { AppConfig, Provider } from "../types";
 
 // Mock external dependencies
-mock.module("readline/promises", () => ({
-  createInterface: mock(() => ({
+mock.module("readline/promises", () => {
+  const mockCreateInterface = mock((options) => ({
     question: mock(() => Promise.resolve("/quit")),
     close: mock(),
     on: mock(),
-  })),
-}));
+  }));
+  return {
+    createInterface: mockCreateInterface,
+  };
+});
 mock.module("../retrieval/store", () => ({
   createVectorStore: mock(() => ({})),
 }));
@@ -39,11 +42,6 @@ describe("startApp", () => {
     planner: { provider: "anthropic", model: "test-planner-model", temperature: 0.7, maxTokens: 1000 },
     developer: { provider: "anthropic", model: "test-developer-model", temperature: 0.7, maxTokens: 1000 },
     tester: { provider: "anthropic", model: "test-tester-model", temperature: 0.7, maxTokens: 1000 },
-    embedding: { provider: "openai", model: "text-embedding-ada-002", dimensions: 1536 },
-    pinecone: { indexName: "test-index" },
-    chunking: { strategy: "recursive", chunkSize: 1000, chunkOverlap: 200, batchSize: 50 },
-    retrieval: { topK: 5 },
-    storage: { dataDir: "./data" },
     allowedCommands: [],
   };
 
@@ -51,7 +49,6 @@ describe("startApp", () => {
   let originalStdoutWrite: (chunk: any, encoding?: BufferEncoding, cb?: (err?: Error | null) => void) => boolean;
 
   beforeEach(() => {
-    // mock.restoreAll(); // Removed as it's not a function in Bun's mock API
     originalProcessExit = process.exit;
     (process as any).exit = mock((code) => {
       throw new Error(`PROCESS_EXIT:${code}`);
@@ -62,27 +59,6 @@ describe("startApp", () => {
       if (cb) cb(null);
       return true;
     });
-
-    // Now createInterface should be a mock function directly
-    (createInterface as any).mockReturnValue({
-      question: mock(() => Promise.resolve("/quit")),
-      close: mock(),
-      // Add the 'on' method to the mock
-      on: mock(),
-    });
-
-    // These are now mocked via mock.module
-    // (createVectorStore as any).mockResolvedValue({});
-    // (createPlanner as any).mockReturnValue({});
-    // (createDeveloper as any).mockReturnValue({});
-    // (createTester as any).mockReturnValue({});
-    // (createPlannerPrompt as any).mockReturnValue({});
-
-    // (processSlashCommand as unknown as Mock<[string, AppConfig, SlashCommandCallbacks], Promise<void>>).mockImplementation(async (command, config, callbacks) => {
-    //   if (command === '/quit') {
-    //     callbacks.exit();
-    //   }
-    // });
   });
 
   afterEach(() => {
@@ -93,14 +69,19 @@ describe("startApp", () => {
   it("should initialize and exit gracefully with /quit command", async () => {
     await expect(startApp(mockConfig)).rejects.toThrow("PROCESS_EXIT:0");
 
-    expect(createInterface).toHaveBeenCalledWith({ input: stdin, output: stdout }); // Use createInterface directly
+    expect(createInterface).toHaveBeenCalledWith({
+      input: stdin,
+      output: stdout,
+      terminal: stdin.isTTY ?? false,
+      historySize: 1000,
+    });
 
     expect(createPlanner).toHaveBeenCalledWith(mockConfig);
     expect(createDeveloper).toHaveBeenCalledWith(mockConfig);
     expect(createTester).toHaveBeenCalledWith(mockConfig);
     expect(createPlannerPrompt).toHaveBeenCalled();
 
-    const mockRl = (createInterface as any).mock.results[0].value; // Use createInterface directly
+    const mockRl = (createInterface as any).mock.results[0].value;
     expect(mockRl.question).toHaveBeenCalled();
     expect(mockRl.close).toHaveBeenCalled();
     expect(process.exit).toHaveBeenCalledWith(0);

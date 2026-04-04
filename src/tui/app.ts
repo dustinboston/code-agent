@@ -10,12 +10,15 @@ import { type DynamicStructuredTool } from "@langchain/core/tools";
 import { createDeveloper, createPlanner, createTester } from "../generation/llm.js";
 import { createPlannerPrompt } from "../generation/prompt.js";
 import { readFileTool, listDirectoryTool } from "../tools/filesystem.js";
-import { createSendMessageTool } from "../generation/runner.js";
+import { createSendMessageTool, runAgentLoop } from "../generation/runner.js";
 import { processSlashCommand } from "./commands.js";
 import { printChatMessage } from "./format.js";
 import type { AppConfig, ChatMessage } from "../types.js";
 import type { ChatOpenAI } from "@langchain/openai";
 import type { ChatGoogle } from "@langchain/google";
+import type { Runnable } from "@langchain/core/runnables";
+
+type AgentModel = ChatAnthropic | ChatOpenAI | ChatGoogle;
 
 /**
  * @interface CliAppState
@@ -23,7 +26,7 @@ import type { ChatGoogle } from "@langchain/google";
  * @property {("initializing" | "idle" | "generating" | "error" | "retrieving")} state - The current operational state of the application.
  * @property {string} statusMsg - A message indicating the current status or ongoing operation.
  * @property {string} errorMsg - An error message if the application is in an error state.
- * @property {Array<ChatAnthropic | ChatOpenAI | ChatGoogle>} llm - An array of language model instances used by the application.
+ * @property {Array<Runnable<any, any>>} llm - An array of language model instances used by the application.
  * @property {ChatPromptTemplate | null} chatPromptTemplate - The chat prompt template used for generating responses.
  * @property {ChatMessage[]} completedMessages - An array of messages that have been completed in the chat.
  */
@@ -31,7 +34,7 @@ interface CliAppState {
   state: "initializing" | "idle" | "generating" | "error" | "retrieving";
   statusMsg: string;
   errorMsg: string;
-  llm: Array<ChatAnthropic | ChatOpenAI | ChatGoogle>;
+  llm: Array<AgentModel>;
   chatPromptTemplate: ChatPromptTemplate | null;
   completedMessages: ChatMessage[];
 }
@@ -54,9 +57,9 @@ async function initializeApp(config: AppConfig): Promise<CliAppState> {
   };
 
   try {
-    const planner = createPlanner(config);
-    const developer = createDeveloper(config);
-    const tester = createTester(config);
+    const planner: AgentModel = createPlanner(config);
+    const developer: AgentModel = createDeveloper(config);
+    const tester: AgentModel = createTester(config);
 
     const prompt = await createPlannerPrompt();
 
@@ -76,18 +79,18 @@ async function initializeApp(config: AppConfig): Promise<CliAppState> {
  * @async
  * @function generateResponse
  * @description Generates a response from the language model based on user input and updates the application state.
- * @param {string} trimmedInput - The user's trimmed input string.
- * @param {CliAppState} appState - The current state of the CLI application.
- * @param {readline.Interface} rl - The readline interface for user interaction.
- * @param {AppConfig} config - The application configuration object.
- * @returns {Promise<void>} A promise that resolves when the response generation is complete.
+ * @param trimmedInput - The user's trimmed input string.
+ * @param appState - The current state of the CLI application.
+ * @param rl - The readline interface for user interaction.
+ * @param config - The application configuration object.
+ * @returns A promise that resolves when the response generation is complete.
  */
 async function generateResponse(
   trimmedInput: string,
   appState: CliAppState,
   rl: readline.Interface,
   config: AppConfig,
-) {
+): Promise<void> {
   const requestApproval = (command: string) => {
     const patterns = config.allowedCommands.map((p) => new RegExp(p));
     if (patterns.some((re) => re.test(command))) {
@@ -160,30 +163,14 @@ async function generateResponse(
         input: trimmedInput,
       })) ?? [];
 
-    const invokeMessages: BaseMessage[] = [...promptMessages];
+    let invokeMessages: BaseMessage[] = [...promptMessages];
 
     process.stdout.write(chalk.dim("Processing...\n"));
-    while (true) {
-      const allChunks: AIMessageChunk[] = [];
-      let iterationText = "";
-      let announcedTools = new Set<string>();
-      let headerWritten = false;
 
-      const stream = await plannerWithTools.stream(invokeMessages);
-      for await (const chunk of stream) {
-        const c = chunk as AIMessageChunk;
-        allChunks.push(c);
+    let headerWritten = false;
 
-        if (c.tool_call_chunks) {
-          for (const tcc of c.tool_call_chunks) {
-            if (tcc.name && !announcedTools.has(tcc.index?.toString() ?? tcc.id ?? "")) {
-              const key = tcc.index?.toString() ?? tcc.id ?? "";
-              if (key) announcedTools.add(key);
-              appState.statusMsg = `Preparing ${tcc.name}...`;
-            }
-          }
-        }
-
+    invokeMessages = await runAgentLoop(plannerWithTools, invokeMessages, {
+      onChunk: (c, iterationText) => {
         const text =
           typeof c.content === "string"
             ? c.content
@@ -199,42 +186,26 @@ async function generateResponse(
             headerWritten = true;
           }
           process.stdout.write(text.replace(/\n/g, "\n  "));
-          iterationText += text;
         }
-      }
+      },
+      onTurnComplete: async (accChunk, iterationText, currentInvokeMessages) => {
+        if (headerWritten) {
+          process.stdout.write("\n\n");
+          headerWritten = false;
+        }
 
-      if (headerWritten) {
-        process.stdout.write("\n\n");
-      }
-
-      const accChunk = allChunks.length > 0 ? allChunks.reduce((acc, c) => acc.concat(c) as AIMessageChunk) : null;
-      if (!accChunk) break;
-
-      if (iterationText.trim()) {
-        const plannerMsg: ChatMessage = {
-          id: randomUUID(),
-          role: "assistant",
-          content: iterationText,
-          timestamp: new Date().toISOString(),
-        };
-        appState.completedMessages = [...appState.completedMessages, plannerMsg].slice(-20);
-      }
-
-      invokeMessages.push(
-        new AIMessage({
-          content: accChunk.content,
-          tool_calls: accChunk.tool_calls,
-          additional_kwargs: accChunk.additional_kwargs,
-          id: accChunk.id,
-        }),
-      );
-
-      const toolCalls = accChunk.tool_calls ?? [];
-      if (toolCalls.length === 0) break; // Exit loop if no tool calls are made
-
-      appState.statusMsg = `Using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`;
-
-      for (const tc of toolCalls) {
+        if (iterationText.trim()) {
+          const plannerMsg: ChatMessage = {
+            id: randomUUID(),
+            role: "assistant",
+            content: iterationText,
+            timestamp: new Date().toISOString(),
+          };
+          appState.completedMessages = [...appState.completedMessages, plannerMsg].slice(-20);
+        }
+        return currentInvokeMessages;
+      },
+      onToolCall: (tc) => {
         if (
           tc.name === "send_message" &&
           tc.args &&
@@ -253,44 +224,15 @@ async function generateResponse(
           printChatMessage(process.stdout.write.bind(process.stdout), m);
           appState.completedMessages = [...appState.completedMessages, m].slice(-20);
         }
-      }
-
-      const toolMessages = await Promise.all(
-        toolCalls.map(async (toolCall) => {
-          if (toolCall.name !== "send_message") {
-            const argsSummary = Object.entries(toolCall.args ?? {})
-              .map(([k, v]) => {
-                const s = typeof v === "string" ? v : JSON.stringify(v);
-                return `${k}: ${s.length > 60 ? s.slice(0, 57) + "..." : s}`;
-              })
-              .join(", ");
-            writeActivity(`Planner: ${toolCall.name}(${argsSummary})`);
-          }
-          const toolFn = plannerTools.find((t) => t.name === toolCall.name);
-          let toolMsg: ToolMessage;
-
-          if (!toolFn) {
-            toolMsg = new ToolMessage({
-              content: `Unknown tool: ${toolCall.name}`,
-              tool_call_id: toolCall.id ?? randomUUID(),
-              name: toolCall.name,
-            });
-          } else {
-            try {
-              toolMsg = (await toolFn.invoke(toolCall)) as ToolMessage;
-            } catch (e) {
-              toolMsg = new ToolMessage({
-                content: `Tool error: ${e instanceof Error ? e.message : String(e)}`,
-                tool_call_id: toolCall.id ?? randomUUID(),
-                name: toolCall.name,
-              });
-            }
-          }
-          return toolMsg;
-        }),
-      );
-      invokeMessages.push(...toolMessages);
-    }
+      },
+      onActivity: writeActivity,
+      onStatus: (msg) => {
+        appState.statusMsg = msg;
+      },
+      requestApproval: requestApproval,
+      agentName: "Planner",
+      agentTools: plannerTools,
+    });
 
     appState.state = "idle";
     appState.statusMsg = "";

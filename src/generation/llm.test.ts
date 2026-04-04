@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, mock, Mock } from "bun:test";
-import {
-  createPlanner,
-  createDeveloper,
-  createTester,
-} from "./llm.js";
+import { createPlanner, createDeveloper, createTester } from "./llm.js";
 import type { AppConfig, Provider } from "../types.js";
 
 // Import the actual classes to get their types, Bun will mock them
@@ -17,13 +13,13 @@ let mockChatGoogleConstructor: Mock<any>;
 
 // Tell Bun to mock these modules and provide our mock constructors
 mock.module("@langchain/anthropic", () => ({
-  ChatAnthropic: mockChatAnthropicConstructor = mock(() => {}),
+  ChatAnthropic: (mockChatAnthropicConstructor = mock(() => {})),
 }));
 mock.module("@langchain/openai", () => ({
-  ChatOpenAI: mockChatOpenAIConstructor = mock(() => {}),
+  ChatOpenAI: (mockChatOpenAIConstructor = mock(() => {})),
 }));
 mock.module("@langchain/google", () => ({
-  ChatGoogle: mockChatGoogleConstructor = mock(() => {}),
+  ChatGoogle: (mockChatGoogleConstructor = mock(() => {})),
 }));
 
 const mockConfig: AppConfig = {
@@ -44,26 +40,6 @@ const mockConfig: AppConfig = {
     model: "claude-3-haiku-20240307",
     temperature: 0.1,
     maxTokens: 500,
-  },
-  embedding: {
-    provider: "openai",
-    model: "text-embedding-ada-002",
-    dimensions: 1536,
-  },
-  pinecone: {
-    indexName: "mock-index",
-  },
-  chunking: {
-    strategy: "recursive",
-    chunkSize: 1000,
-    chunkOverlap: 200,
-    batchSize: 1000, // Added batchSize
-  },
-  retrieval: {
-    topK: 5,
-  },
-  storage: {
-    dataDir: "./data",
   },
   allowedCommands: [],
 };

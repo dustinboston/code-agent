@@ -5,12 +5,15 @@ import type { AIMessageChunk, BaseMessage } from "@langchain/core/messages";
 import type { ChatAnthropic } from "@langchain/anthropic";
 import type { ChatOpenAI } from "@langchain/openai";
 import type { ChatGoogle } from "@langchain/google";
+import type { Runnable } from "@langchain/core/runnables";
 import { z } from "zod";
 import { tool } from "@langchain/core/tools";
-import { filesystemTools, readFileTool, listDirectoryTool, writeFileTool, deletePathTool } from "../tools/filesystem.js";
+import { readFileTool, listDirectoryTool, writeFileTool, deletePathTool } from "../tools/filesystem.js";
 import { runCommandTool } from "../tools/shell.js";
 import { createDeveloperPrompt, createTesterPrompt } from "../generation/prompt.js";
 import type { DynamicStructuredTool } from "@langchain/core/tools";
+
+type AgentModel = ChatAnthropic | ChatOpenAI | ChatGoogle;
 
 // ─── Agent loop runner ─────────────────────────────────────────────────────────
 
@@ -31,7 +34,7 @@ interface RunAgentLoopCallbacks {
 }
 
 export async function runAgentLoop(
-  agent: ChatAnthropic | ChatOpenAI | ChatGoogle,
+  agent: Runnable<any, any>,
   invokeMessages: BaseMessage[],
   callbacks: RunAgentLoopCallbacks,
 ): Promise<BaseMessage[]> {
@@ -195,8 +198,8 @@ export async function runAgentLoop(
  * @returns The full concatenated text the agent produced across all iterations.
  */
 export async function runSubAgent(
-  agent: ChatAnthropic | ChatOpenAI | ChatGoogle,
-  agentTools: typeof filesystemTools,
+  agent: AgentModel,
+  agentTools: DynamicStructuredTool[],
   promptFn: () => ReturnType<typeof createDeveloperPrompt>,
   message: string,
   onStatus: (msg: string) => void,
@@ -210,33 +213,26 @@ export async function runSubAgent(
   const promptMessages = await prompt.formatMessages({ input: message });
   let fullText = "";
 
-  const updatedInvokeMessages = await runAgentLoop(
-    agentWithTools,
-    promptMessages,
-    {
-      onChunk: (c, iterText) => {
-        const text =
-          typeof c.content === "string"
-            ? c.content
-            : Array.isArray(c.content)
-              ? c.content.map((p) => (typeof p === "string" ? p : "text" in p ? p.text : "")).join("")
-              : "";
-        fullText += text;
-      },
-      onTurnComplete: async (accChunk, iterationText, currentInvokeMessages) => {
-        if (onAgentMessage && iterationText.trim()) {
-          await onAgentMessage(agentName, iterationText.trim());
-        }
-        return currentInvokeMessages;
-      },
-      onActivity,
-      onStatus,
-      requestApproval,
-      onAgentMessage,
-      agentName,
-      agentTools,
+  const updatedInvokeMessages = await runAgentLoop(agentWithTools, promptMessages, {
+    onChunk: (c, iterText) => {
+      const text =
+        typeof c.content === "string"
+          ? c.content
+          : Array.isArray(c.content)
+            ? c.content.map((p) => (typeof p === "string" ? p : "text" in p ? p.text : "")).join("")
+            : "";
+      fullText += text;
     },
-  );
+    onTurnComplete: async (accChunk, iterationText, currentInvokeMessages) => {
+      return currentInvokeMessages;
+    },
+    onActivity,
+    onStatus,
+    requestApproval,
+    onAgentMessage,
+    agentName,
+    agentTools,
+  });
 
   return fullText;
 }
@@ -247,7 +243,7 @@ export async function runSubAgent(
  * Creates the `send_message` LangChain tool that the planner uses to delegate
  * work to sub-agents.
  *
- * When the planner calls `send_message({ id: "developer", message: "…" })`,
+ * When the planner calls `send_message({ id: "developer", message: "..." })`,
  * this tool spins up the corresponding sub-agent's agentic loop via
  * {@link runSubAgent} and returns the result as a JSON string. The planner
  * then decides whether to call the tester, ask a follow-up, or report back
@@ -264,8 +260,8 @@ export async function runSubAgent(
  * @returns A LangChain `DynamicStructuredTool` that the planner can call.
  */
 export function createSendMessageTool(
-  developer: ChatAnthropic | ChatOpenAI | ChatGoogle,
-  tester: ChatAnthropic | ChatOpenAI | ChatGoogle,
+  developer: AgentModel,
+  tester: AgentModel,
   onStatus: (msg: string) => void,
   onActivity?: (line: string) => void,
   requestApproval?: (command: string) => Promise<boolean>,
