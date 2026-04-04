@@ -1,8 +1,8 @@
 import { startApp } from "./app";
 import { createInterface } from "readline/promises"; // Import createInterface directly
 import { stdin, stdout } from "process";
-import { createDeveloper, createPlanner, createTester } from "../generation/llm";
-import { createPlannerPrompt } from "../generation/prompt";
+import { createDeveloper, createPlanner, createTester } from "../llm/llm";
+import { createPlannerPrompt } from "../llm/prompt";
 import { expect, mock, Mock, beforeEach, afterEach, spyOn, describe, it } from "bun:test";
 import { processSlashCommand, SlashCommandCallbacks } from "./commands";
 import { AppConfig, Provider } from "../types";
@@ -21,12 +21,12 @@ mock.module("readline/promises", () => {
 mock.module("../retrieval/store", () => ({
   createVectorStore: mock(() => ({})),
 }));
-mock.module("../generation/llm", () => ({
+mock.module("../llm/llm", () => ({
   createDeveloper: mock(() => ({})),
   createPlanner: mock(() => ({})),
   createTester: mock(() => ({})),
 }));
-mock.module("../generation/prompt", () => ({
+mock.module("../llm/prompt", () => ({
   createPlannerPrompt: mock(() => ({})),
 }));
 mock.module("./commands", () => ({

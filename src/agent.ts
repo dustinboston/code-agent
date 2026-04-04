@@ -4,7 +4,7 @@
  */
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join } from "node:path";
 
 /**
  * Find the first agent file that exists in the root directory of the project.
@@ -38,7 +38,7 @@ export async function loadAgentsFile() {
  * @returns The content of the agent file or an empty string
  */
 export async function readAgentsFile(agentFileName: string) {
-  const agentFile = resolve(agentFileName);
+  const agentFile = join(process.cwd(), agentFileName);
   if (!existsSync(agentFile)) return "";
   try {
     const fileContent = await readFile(agentFile, "utf-8");

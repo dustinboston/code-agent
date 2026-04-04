@@ -6,7 +6,7 @@
  * Configuration is assembled from four sources in ascending priority order:
  * 1. Built-in {@link DEFAULTS} — always present.
  * 2. `code-agent.config.json` in the working directory — optional file override.
- * 3. Environment variables (e.g. `PINECONE_INDEX`) — loaded via `dotenv`.
+ * 3. Environment variables — loaded via `dotenv`.
  * 4. CLI-supplied overrides passed directly to {@link loadConfig}.
  *
  * Use {@link loadConfig} to obtain a fully-merged {@link AppConfig} and
@@ -21,25 +21,52 @@ import type { AppConfig } from "./types.js";
 // Load .env on import
 dotenvConfig();
 
+const CONFIG_FILE = "./code-agent.config.json";
+
+/**
+ * Default and max tokens, from Claude Code src/utils/context.ts
+ *
+ * ## Claude
+ *
+ * - `claude-opus-4-6`
+ *   - Default tokens: 64_000
+ *   - Upper limit: 128_000
+ * - `claude-sonnet-4-6`
+ *   - Default tokens = 32_000
+ *   - Upper limit = 128_000
+ * - `claude-opus-4-5`
+ * - `claude-sonnet-4`
+ * - `claude-haiku-4`
+ *   - Default tokens = 32_000
+ *   - Upper limit = 64_000
+ *
+ * ## Gemini
+ * - `gemini-3.1-pro-preview`
+ *   - Upper limit: 1_048_576
+ *   - https://ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview
+ * - `gemini-3.1-flash-lite-preview`
+ *   - Upper limit: 1_048_576
+ *   - https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite-preview
+ */
 const DEFAULTS: AppConfig = {
   planner: {
     provider: "anthropic",
-    model: "claude-opus-4-6",
+    model: "claude-sonnet-4-6",
     temperature: 0.7,
-    maxTokens: 8192,
+    maxTokens: 128_000,
   },
   developer: {
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     temperature: 0.3,
-    maxTokens: 8192,
+    maxTokens: 128_000,
   },
   // The tester agent is configured with a lower temperature to act as a QA Engineer, ensuring reproducible test generation.
   tester: {
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     temperature: 0.3,
-    maxTokens: 8192,
+    maxTokens: 128_000,
   },
   allowedCommands: [],
 };
@@ -55,7 +82,7 @@ const DEFAULTS: AppConfig = {
  *   the JSON file, or `{}` if the file is absent or malformed.
  */
 function loadFileConfig(): Partial<AppConfig> {
-  const configPath = resolve("./code-agent.config.json");
+  const configPath = resolve(CONFIG_FILE);
   if (!existsSync(configPath)) return {};
   try {
     return JSON.parse(readFileSync(configPath, "utf-8")) as Partial<AppConfig>;
@@ -100,8 +127,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
  * @param config - The fully-merged application configuration to validate.
  *
  * @remarks
- * Checks for `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `PINECONE_API_KEY`, and
- * a non-empty `config.pinecone.indexName`. If any are missing, an error
+ * Checks for `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and If any are missing, an error
  * message is printed to `stderr` and the process exits with code `1`.
  */
 export function validateConfig(config: AppConfig): void {

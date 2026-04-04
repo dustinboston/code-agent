@@ -10,7 +10,7 @@ import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import { readFileTool, listDirectoryTool, writeFileTool, deletePathTool } from "../tools/filesystem.js";
 import { runCommandTool } from "../tools/shell.js";
-import { createDeveloperPrompt, createTesterPrompt } from "../generation/prompt.js";
+import { createDeveloperPrompt, createTesterPrompt } from "./prompt.js";
 import type { DynamicStructuredTool } from "@langchain/core/tools";
 
 type AgentModel = ChatAnthropic | ChatOpenAI | ChatGoogle;

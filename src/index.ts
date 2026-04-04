@@ -10,15 +10,12 @@
  */
 import packageJson from "../package.json" with { type: "json" };
 import { loadConfig, validateConfig } from "./config.js";
+import { startApp } from "./tui/app.js";
 import { Command } from "commander";
 
 const version = packageJson.version;
 
 console.log(`Code Agent ${version}`);
-
-// Dynamic imports defer heavy LangChain module loading until after the banner prints.
-
-const { configCommand } = await import("./commands/config.js");
 
 /**
  * Root Commander program instance.
@@ -33,14 +30,9 @@ program
   .description("AI code editing team")
   .version(version)
   .action(async () => {
-    const { startApp } = await import("./tui/app.js");
-
     const config = loadConfig();
     validateConfig(config);
-
     startApp(config);
   });
-
-program.addCommand(configCommand);
 
 program.parse();
