@@ -44,7 +44,7 @@ src/
 
 ### Package Manager
 
-- **pnpm** — fast, disk-efficient, strict dependency resolution
+- **bun** — fast, disk-efficient, strict dependency resolution
 
 ### TUI Framework
 
@@ -97,10 +97,10 @@ interface Document {
   id: string;
   content: string;
   metadata: {
-    source: string;       // file path
-    format: string;       // txt, md, pdf
+    source: string; // file path
+    format: string; // txt, md, pdf
     title?: string;
-    ingestedAt: string;   // ISO timestamp
+    ingestedAt: string; // ISO timestamp
   };
 }
 
@@ -108,7 +108,7 @@ interface Chunk {
   id: string;
   documentId: string;
   content: string;
-  index: number;          // position within document
+  index: number; // position within document
   metadata: {
     source: string;
     startOffset: number;
@@ -118,13 +118,13 @@ interface Chunk {
 
 interface RetrievalResult {
   chunk: Chunk;
-  score: number;          // similarity score (0–1)
+  score: number; // similarity score (0–1)
 }
 
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
-  sources?: RetrievalResult[];  // only on assistant messages
+  sources?: RetrievalResult[]; // only on assistant messages
   timestamp: string;
 }
 
@@ -137,16 +137,16 @@ interface AppConfig {
   };
   embedding: {
     provider: "openai";
-    model: string;          // default: "text-embedding-3-small"
-    dimensions: number;     // default: 1536
+    model: string; // default: "text-embedding-3-small"
+    dimensions: number; // default: 1536
   };
   pinecone: {
-    indexName: string;      // Pinecone index name
-    namespace?: string;     // optional namespace for multi-tenant separation
+    indexName: string; // Pinecone index name
+    namespace?: string; // optional namespace for multi-tenant separation
   };
   chunking: {
     strategy: "recursive";
-    chunkSize: number;      // in characters
+    chunkSize: number; // in characters
     chunkOverlap: number;
   };
   retrieval: {
@@ -154,7 +154,7 @@ interface AppConfig {
     scoreThreshold: number; // minimum similarity to include
   };
   storage: {
-    dataDir: string;        // default: ./data (for local metadata cache)
+    dataDir: string; // default: ./data (for local metadata cache)
   };
 }
 ```
@@ -209,12 +209,12 @@ Configuration is resolved in this order (later overrides earlier):
 
 ### Environment Variables
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Yes | API key for Claude (LLM) |
-| `OPENAI_API_KEY` | Yes | API key for OpenAI embeddings |
-| `PINECONE_API_KEY` | Yes | API key for Pinecone vector database |
-| `PINECONE_INDEX` | Yes | Name of the Pinecone index to use |
+| Variable            | Required | Description                          |
+| ------------------- | -------- | ------------------------------------ |
+| `ANTHROPIC_API_KEY` | Yes      | API key for Claude (LLM)             |
+| `OPENAI_API_KEY`    | Yes      | API key for OpenAI embeddings        |
+| `PINECONE_API_KEY`  | Yes      | API key for Pinecone vector database |
+| `PINECONE_INDEX`    | Yes      | Name of the Pinecone index to use    |
 
 ### CLI Commands
 

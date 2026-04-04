@@ -1,37 +1,49 @@
-/// <reference types="vitest/globals" />
-import { startApp } from './app';
-import { createInterface } from 'readline/promises'; // Import createInterface directly
-import { stdin, stdout } from 'process';
-import { createVectorStore } from '../retrieval/store';
-import { createDeveloper, createPlanner, createTester } from '../generation/llm';
-import { createPlannerPrompt } from '../generation/prompt';
-import { vi, expect, type Mock } from 'vitest'; // Import type Mock
-import { processSlashCommand, SlashCommandCallbacks } from './commands';
-import { AppConfig, Provider } from '../types';
+import { startApp } from "./app";
+import { createInterface } from "readline/promises"; // Import createInterface directly
+import { stdin, stdout } from "process";
+import { createDeveloper, createPlanner, createTester } from "../generation/llm";
+import { createPlannerPrompt } from "../generation/prompt";
+import { expect, mock, Mock, beforeEach, afterEach, spyOn, describe, it } from "bun:test";
+import { processSlashCommand, SlashCommandCallbacks } from "./commands";
+import { AppConfig, Provider } from "../types";
 
 // Mock external dependencies
-vi.mock('readline/promises', () => ({
-  createInterface: vi.fn(() => ({
-    question: vi.fn(() => Promise.resolve('/quit')),
-    close: vi.fn(),
-    on: vi.fn(),
+mock.module("readline/promises", () => ({
+  createInterface: mock(() => ({
+    question: mock(() => Promise.resolve("/quit")),
+    close: mock(),
+    on: mock(),
   })),
 }));
-vi.mock('../retrieval/store');
-vi.mock('../generation/llm');
-vi.mock('../generation/prompt');
-vi.mock('./commands'); // Mock processSlashCommand
+mock.module("../retrieval/store", () => ({
+  createVectorStore: mock(() => ({})),
+}));
+mock.module("../generation/llm", () => ({
+  createDeveloper: mock(() => ({})),
+  createPlanner: mock(() => ({})),
+  createTester: mock(() => ({})),
+}));
+mock.module("../generation/prompt", () => ({
+  createPlannerPrompt: mock(() => ({})),
+}));
+mock.module("./commands", () => ({
+  processSlashCommand: mock((command, config, callbacks) => {
+    if (command === "/quit") {
+      callbacks.exit();
+    }
+  }),
+})); // Mock processSlashCommand
 
-describe('startApp', () => {
+describe("startApp", () => {
   const mockConfig: AppConfig = {
-    planner: { provider: "anthropic", model: 'test-planner-model', temperature: 0.7, maxTokens: 1000 },
-    developer: { provider: "anthropic", model: 'test-developer-model', temperature: 0.7, maxTokens: 1000 },
-    tester: { provider: "anthropic", model: 'test-tester-model', temperature: 0.7, maxTokens: 1000 },
-    embedding: { provider: 'openai', model: 'text-embedding-ada-002', dimensions: 1536 },
-    pinecone: { indexName: 'test-index' },
-    chunking: { strategy: 'recursive', chunkSize: 1000, chunkOverlap: 200, batchSize: 50 },
+    planner: { provider: "anthropic", model: "test-planner-model", temperature: 0.7, maxTokens: 1000 },
+    developer: { provider: "anthropic", model: "test-developer-model", temperature: 0.7, maxTokens: 1000 },
+    tester: { provider: "anthropic", model: "test-tester-model", temperature: 0.7, maxTokens: 1000 },
+    embedding: { provider: "openai", model: "text-embedding-ada-002", dimensions: 1536 },
+    pinecone: { indexName: "test-index" },
+    chunking: { strategy: "recursive", chunkSize: 1000, chunkOverlap: 200, batchSize: 50 },
     retrieval: { topK: 5 },
-    storage: { dataDir: './data' },
+    storage: { dataDir: "./data" },
     allowedCommands: [],
   };
 
@@ -39,40 +51,38 @@ describe('startApp', () => {
   let originalStdoutWrite: (chunk: any, encoding?: BufferEncoding, cb?: (err?: Error | null) => void) => boolean;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    // mock.restoreAll(); // Removed as it's not a function in Bun's mock API
     originalProcessExit = process.exit;
-    (process as any).exit = vi.fn();
+    (process as any).exit = mock((code) => {
+      throw new Error(`PROCESS_EXIT:${code}`);
+    });
 
     originalStdoutWrite = stdout.write;
-    (stdout as any).write = vi.fn((chunk: any, cb?: (err?: Error | null) => void) => {
+    (stdout as any).write = mock((chunk: any, cb?: (err?: Error | null) => void) => {
       if (cb) cb(null);
       return true;
     });
 
     // Now createInterface should be a mock function directly
-    (createInterface as Mock).mockReturnValue({
-      question: vi.fn(() => Promise.resolve('/quit')),
-      close: vi.fn(),
+    (createInterface as any).mockReturnValue({
+      question: mock(() => Promise.resolve("/quit")),
+      close: mock(),
       // Add the 'on' method to the mock
-      on: vi.fn((event, handler) => {
-        if (event === 'SIGINT') {
-          // Simulate SIGINT by calling the handler, which should exit the process
-          handler();
-        }
-      }),
+      on: mock(),
     });
 
-    (createVectorStore as Mock).mockResolvedValue({});
-    (createPlanner as Mock).mockReturnValue({});
-    (createDeveloper as Mock).mockReturnValue({});
-    (createTester as Mock).mockReturnValue({});
-    (createPlannerPrompt as Mock).mockReturnValue({});
+    // These are now mocked via mock.module
+    // (createVectorStore as any).mockResolvedValue({});
+    // (createPlanner as any).mockReturnValue({});
+    // (createDeveloper as any).mockReturnValue({});
+    // (createTester as any).mockReturnValue({});
+    // (createPlannerPrompt as any).mockReturnValue({});
 
-    (processSlashCommand as Mock<[string, AppConfig, SlashCommandCallbacks], Promise<void>>).mockImplementation(async (command, config, callbacks) => {
-      if (command === '/quit') {
-        callbacks.exit();
-      }
-    });
+    // (processSlashCommand as unknown as Mock<[string, AppConfig, SlashCommandCallbacks], Promise<void>>).mockImplementation(async (command, config, callbacks) => {
+    //   if (command === '/quit') {
+    //     callbacks.exit();
+    //   }
+    // });
   });
 
   afterEach(() => {
@@ -80,18 +90,17 @@ describe('startApp', () => {
     (stdout as any).write = originalStdoutWrite;
   });
 
-  it('should initialize and exit gracefully with /quit command', async () => {
-    await startApp(mockConfig);
+  it("should initialize and exit gracefully with /quit command", async () => {
+    await expect(startApp(mockConfig)).rejects.toThrow("PROCESS_EXIT:0");
 
     expect(createInterface).toHaveBeenCalledWith({ input: stdin, output: stdout }); // Use createInterface directly
 
-    expect(createVectorStore).toHaveBeenCalledWith(mockConfig);
     expect(createPlanner).toHaveBeenCalledWith(mockConfig);
     expect(createDeveloper).toHaveBeenCalledWith(mockConfig);
     expect(createTester).toHaveBeenCalledWith(mockConfig);
     expect(createPlannerPrompt).toHaveBeenCalled();
 
-    const mockRl = (createInterface as Mock).mock.results[0].value; // Use createInterface directly
+    const mockRl = (createInterface as any).mock.results[0].value; // Use createInterface directly
     expect(mockRl.question).toHaveBeenCalled();
     expect(mockRl.close).toHaveBeenCalled();
     expect(process.exit).toHaveBeenCalledWith(0);

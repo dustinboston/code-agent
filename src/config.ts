@@ -22,26 +22,6 @@ import type { AppConfig } from "./types.js";
 dotenvConfig();
 
 const DEFAULTS: AppConfig = {
-  embedding: {
-    provider: "openai",
-    model: "text-embedding-3-small",
-    dimensions: 512,
-  },
-  pinecone: {
-    indexName: process.env.PINECONE_INDEX ?? "",
-  },
-  chunking: {
-    strategy: "recursive",
-    chunkSize: 1000,
-    chunkOverlap: 200,
-    batchSize: 50,
-  },
-  retrieval: {
-    topK: 8,
-  },
-  storage: {
-    dataDir: "./data",
-  },
   planner: {
     provider: "anthropic",
     model: "claude-opus-4-6",
@@ -106,14 +86,9 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     Object.assign({}, base, ...layers);
 
   return {
-    embedding: merge(DEFAULTS.embedding, fileConfig.embedding, overrides.embedding),
-    pinecone:  merge(DEFAULTS.pinecone,  fileConfig.pinecone,  { indexName: process.env.PINECONE_INDEX ?? DEFAULTS.pinecone.indexName }, overrides.pinecone),
-    chunking:  merge(DEFAULTS.chunking,  fileConfig.chunking,  overrides.chunking),
-    retrieval: merge(DEFAULTS.retrieval, fileConfig.retrieval, overrides.retrieval),
-    storage:   merge(DEFAULTS.storage,   fileConfig.storage,   overrides.storage),
-    planner:         merge(DEFAULTS.planner,   fileConfig.planner,   overrides.planner),
-    developer:       merge(DEFAULTS.developer, fileConfig.developer, overrides.developer),
-    tester:          merge(DEFAULTS.tester,    fileConfig.tester,    overrides.tester),
+    planner: merge(DEFAULTS.planner, fileConfig.planner, overrides.planner),
+    developer: merge(DEFAULTS.developer, fileConfig.developer, overrides.developer),
+    tester: merge(DEFAULTS.tester, fileConfig.tester, overrides.tester),
     allowedCommands: overrides.allowedCommands ?? fileConfig.allowedCommands ?? DEFAULTS.allowedCommands,
   };
 }
@@ -134,8 +109,6 @@ export function validateConfig(config: AppConfig): void {
   if (!process.env.ANTHROPIC_API_KEY) missing.push("ANTHROPIC_API_KEY");
   if (!process.env.OPENAI_API_KEY) missing.push("OPENAI_API_KEY");
   if (!process.env.GOOGLE_API_KEY) missing.push("GOOGLE_API_KEY");
-  if (!process.env.PINECONE_API_KEY) missing.push("PINECONE_API_KEY");
-  if (!config.pinecone.indexName) missing.push("PINECONE_INDEX");
 
   if (missing.length > 0) {
     console.error(`\nMissing required environment variables:\n  ${missing.join("\n  ")}`);

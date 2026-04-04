@@ -18,9 +18,7 @@ console.log(`Code Agent ${version}`);
 
 // Dynamic imports defer heavy LangChain module loading until after the banner prints.
 
-const { ingestCommand } = await import("./commands/ingest.js");
 const { configCommand } = await import("./commands/config.js");
-const { storeCommand } = await import("./commands/store.js");
 
 /**
  * Root Commander program instance.
@@ -36,14 +34,13 @@ program
   .version(version)
   .action(async () => {
     const { startApp } = await import("./tui/app.js");
-    
+
     const config = loadConfig();
     validateConfig(config);
+
     startApp(config);
   });
 
-program.addCommand(ingestCommand);
 program.addCommand(configCommand);
-program.addCommand(storeCommand);
 
 program.parse();

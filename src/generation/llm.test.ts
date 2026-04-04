@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, mock, Mock } from "bun:test";
 import {
   createPlanner,
   createDeveloper,
@@ -6,15 +6,25 @@ import {
 } from "./llm.js";
 import type { AppConfig, Provider } from "../types.js";
 
-// Import the actual classes to get their types, Vitest will mock them
+// Import the actual classes to get their types, Bun will mock them
 import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatGoogle } from "@langchain/google";
 
-// Tell Vitest to mock these modules
-vi.mock("@langchain/anthropic");
-vi.mock("@langchain/openai");
-vi.mock("@langchain/google");
+let mockChatAnthropicConstructor: Mock<any>;
+let mockChatOpenAIConstructor: Mock<any>;
+let mockChatGoogleConstructor: Mock<any>;
+
+// Tell Bun to mock these modules and provide our mock constructors
+mock.module("@langchain/anthropic", () => ({
+  ChatAnthropic: mockChatAnthropicConstructor = mock(() => {}),
+}));
+mock.module("@langchain/openai", () => ({
+  ChatOpenAI: mockChatOpenAIConstructor = mock(() => {}),
+}));
+mock.module("@langchain/google", () => ({
+  ChatGoogle: mockChatGoogleConstructor = mock(() => {}),
+}));
 
 const mockConfig: AppConfig = {
   planner: {
@@ -55,58 +65,55 @@ const mockConfig: AppConfig = {
   storage: {
     dataDir: "./data",
   },
-  // Removed github and firebase as they are not part of AppConfig
+  allowedCommands: [],
 };
 
 describe("LLM Factory Functions", () => {
-  // Cast the imported classes to their mocked versions
-  const MockChatAnthropic = vi.mocked(ChatAnthropic);
-  const MockChatOpenAI = vi.mocked(ChatOpenAI);
-  const MockChatGoogle = vi.mocked(ChatGoogle);
-
   // Clear mocks before each test to ensure isolation
   beforeEach(() => {
-    MockChatAnthropic.mockClear();
-    MockChatOpenAI.mockClear();
-    MockChatGoogle.mockClear();
+    // Manually create mock functions for the constructors
+    // These are now initialized in mock.module, so just clear them
+    mockChatAnthropicConstructor.mockClear();
+    mockChatOpenAIConstructor.mockClear();
+    mockChatGoogleConstructor.mockClear();
   });
 
   it("createPlanner should instantiate ChatOpenAI with correct options", () => {
     createPlanner(mockConfig);
-    expect(MockChatOpenAI).toHaveBeenCalledTimes(1);
-    expect(MockChatOpenAI).toHaveBeenCalledWith({
+    expect(mockChatOpenAIConstructor).toHaveBeenCalledTimes(1);
+    expect(mockChatOpenAIConstructor).toHaveBeenCalledWith({
       model: mockConfig.planner.model,
       temperature: mockConfig.planner.temperature,
       maxTokens: mockConfig.planner.maxTokens,
       streaming: true,
     });
-    expect(MockChatAnthropic).not.toHaveBeenCalled();
-    expect(MockChatGoogle).not.toHaveBeenCalled();
+    expect(mockChatAnthropicConstructor).not.toHaveBeenCalled();
+    expect(mockChatGoogleConstructor).not.toHaveBeenCalled();
   });
 
   it("createDeveloper should instantiate ChatGoogle with correct options", () => {
     createDeveloper(mockConfig);
-    expect(MockChatGoogle).toHaveBeenCalledTimes(1);
-    expect(MockChatGoogle).toHaveBeenCalledWith({
+    expect(mockChatGoogleConstructor).toHaveBeenCalledTimes(1);
+    expect(mockChatGoogleConstructor).toHaveBeenCalledWith({
       model: mockConfig.developer.model,
       temperature: mockConfig.developer.temperature,
       maxTokens: mockConfig.developer.maxTokens,
       streaming: true,
     });
-    expect(MockChatAnthropic).not.toHaveBeenCalled();
-    expect(MockChatOpenAI).not.toHaveBeenCalled();
+    expect(mockChatAnthropicConstructor).not.toHaveBeenCalled();
+    expect(mockChatOpenAIConstructor).not.toHaveBeenCalled();
   });
 
   it("createTester should instantiate ChatAnthropic with correct options", () => {
     createTester(mockConfig);
-    expect(MockChatAnthropic).toHaveBeenCalledTimes(1);
-    expect(MockChatAnthropic).toHaveBeenCalledWith({
+    expect(mockChatAnthropicConstructor).toHaveBeenCalledTimes(1);
+    expect(mockChatAnthropicConstructor).toHaveBeenCalledWith({
       model: mockConfig.tester.model,
       temperature: mockConfig.tester.temperature,
       maxTokens: mockConfig.tester.maxTokens,
       streaming: true,
     });
-    expect(MockChatOpenAI).not.toHaveBeenCalled();
-    expect(MockChatGoogle).not.toHaveBeenCalled();
+    expect(mockChatOpenAIConstructor).not.toHaveBeenCalled();
+    expect(mockChatGoogleConstructor).not.toHaveBeenCalled();
   });
 });

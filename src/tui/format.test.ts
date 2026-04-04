@@ -1,7 +1,6 @@
-/// <reference types="vitest/globals" />
 import { printChatMessage } from './format';
 import { ChatMessage } from '../types';
-import { vi, expect } from 'vitest';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { stdout } from 'process';
 import chalk from 'chalk';
 import { randomUUID } from 'crypto';
@@ -11,10 +10,10 @@ describe('printChatMessage', () => {
   let capturedOutput: string[] = [];
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    // mock.restoreAll(); // Removed as it's not a function in Bun's mock API
     capturedOutput = [];
     originalStdoutWrite = stdout.write;
-    (stdout as any).write = vi.fn((chunk: any, cb?: (err?: Error | null) => void) => {
+    (stdout as any).write = mock((chunk: any, cb?: (err?: Error | null) => void) => {
       capturedOutput.push(chunk.toString());
       if (cb) cb(null);
       return true;

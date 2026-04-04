@@ -44,7 +44,7 @@ export async function runSubAgent(
   onAgentMessage?: (agentName: string, message: string) => Promise<void>,
 ): Promise<string> {
   const agentWithTools = agent.bindTools(agentTools);
-  const prompt = promptFn();
+  const prompt = await promptFn();
   const promptMessages = await prompt.formatMessages({ input: message });
   const invokeMessages: BaseMessage[] = [...promptMessages];
   let fullText = "";

@@ -7,7 +7,6 @@ import type { AIMessageChunk, BaseMessage } from "@langchain/core/messages";
 import type { ChatAnthropic } from "@langchain/anthropic";
 import type { ChatPromptTemplate } from "@langchain/core/prompts";
 import { type DynamicStructuredTool } from "@langchain/core/tools";
-import { createVectorStore } from "../retrieval/store.js";
 import { createDeveloper, createPlanner, createTester } from "../generation/llm.js";
 import { createPlannerPrompt } from "../generation/prompt.js";
 import { readFileTool, listDirectoryTool } from "../tools/filesystem.js";
@@ -41,11 +40,11 @@ async function initializeApp(config: AppConfig): Promise<CliAppState> {
   };
 
   try {
-    const store = await createVectorStore(config);
     const planner = createPlanner(config);
     const developer = createDeveloper(config);
     const tester = createTester(config);
-    const prompt = createPlannerPrompt();
+
+    const prompt = await createPlannerPrompt();
 
     appState.llm = [planner, developer, tester];
     appState.chatPromptTemplate = prompt;
@@ -59,7 +58,12 @@ async function initializeApp(config: AppConfig): Promise<CliAppState> {
   return appState;
 }
 
-async function generateResponse(trimmedInput: string, appState: CliAppState, rl: readline.Interface, config: AppConfig) {
+async function generateResponse(
+  trimmedInput: string,
+  appState: CliAppState,
+  rl: readline.Interface,
+  config: AppConfig,
+) {
   const requestApproval = (command: string) => {
     const patterns = config.allowedCommands.map((p) => new RegExp(p));
     if (patterns.some((re) => re.test(command))) {
@@ -67,9 +71,11 @@ async function generateResponse(trimmedInput: string, appState: CliAppState, rl:
     }
     return new Promise<boolean>(async (resolve) => {
       try {
-        const answer = (await rl.question(
-          chalk.yellow(`⚠  Agent wants to run: ${command} `) + chalk.dim("Allow? (Y/n) "),
-        )).toLowerCase().trim();
+        const answer = (
+          await rl.question(chalk.yellow(`⚠  Agent wants to run: ${command} `) + chalk.dim("Allow? (Y/n) "))
+        )
+          .toLowerCase()
+          .trim();
         resolve(answer === "y" || answer === "");
       } catch (err: any) {
         if (err?.code === "ABORT_ERR" || err?.name === "AbortError") {
@@ -111,14 +117,24 @@ async function generateResponse(trimmedInput: string, appState: CliAppState, rl:
       printChatMessage(process.stdout.write.bind(process.stdout), msg);
       appState.completedMessages = [...appState.completedMessages, msg].slice(-20);
     };
-    const sendMessageTool = createSendMessageTool(developer, tester, (msg) => { appState.statusMsg = msg; }, writeActivity, requestApproval, writeAgentMessage);
+    const sendMessageTool = createSendMessageTool(
+      developer,
+      tester,
+      (msg) => {
+        appState.statusMsg = msg;
+      },
+      writeActivity,
+      requestApproval,
+      writeAgentMessage,
+    );
     const plannerTools: DynamicStructuredTool[] = [readFileTool, listDirectoryTool, sendMessageTool];
     const plannerWithTools = planner.bindTools(plannerTools);
 
-    const promptMessages = await appState.chatPromptTemplate?.formatMessages({
-      chat_history: chatHistory,
-      input: trimmedInput,
-    }) ?? [];
+    const promptMessages =
+      (await appState.chatPromptTemplate?.formatMessages({
+        chat_history: chatHistory,
+        input: trimmedInput,
+      })) ?? [];
 
     const invokeMessages: BaseMessage[] = [...promptMessages];
 
@@ -167,9 +183,7 @@ async function generateResponse(trimmedInput: string, appState: CliAppState, rl:
         process.stdout.write("\n\n");
       }
 
-      const accChunk = allChunks.length > 0
-        ? allChunks.reduce((acc, c) => acc.concat(c) as AIMessageChunk)
-        : null;
+      const accChunk = allChunks.length > 0 ? allChunks.reduce((acc, c) => acc.concat(c) as AIMessageChunk) : null;
       if (!accChunk) break;
 
       if (iterationText.trim()) {
@@ -195,10 +209,42 @@ async function generateResponse(trimmedInput: string, appState: CliAppState, rl:
       if (toolCalls.length === 0) break; // Exit loop if no tool calls are made
 
       appState.statusMsg = `Using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`;
+
+      for (const tc of toolCalls) {
+        if (
+          tc.name === "send_message" &&
+          tc.args &&
+          typeof tc.args === "object" &&
+          "id" in tc.args &&
+          "message" in tc.args
+        ) {
+          const args = tc.args as { id: string; message: string };
+          const target = args.id.charAt(0).toUpperCase() + args.id.slice(1);
+          const m: ChatMessage = {
+            id: randomUUID(),
+            role: "system",
+            content: `[Planner → ${target}]\n${args.message}`,
+            timestamp: new Date().toISOString(),
+          };
+          printChatMessage(process.stdout.write.bind(process.stdout), m);
+          appState.completedMessages = [...appState.completedMessages, m].slice(-20);
+        }
+      }
+
       const toolMessages = await Promise.all(
         toolCalls.map(async (toolCall) => {
+          if (toolCall.name !== "send_message") {
+            const argsSummary = Object.entries(toolCall.args ?? {})
+              .map(([k, v]) => {
+                const s = typeof v === "string" ? v : JSON.stringify(v);
+                return `${k}: ${s.length > 60 ? s.slice(0, 57) + "..." : s}`;
+              })
+              .join(", ");
+            writeActivity(`Planner: ${toolCall.name}(${argsSummary})`);
+          }
           const toolFn = plannerTools.find((t) => t.name === toolCall.name);
           let toolMsg: ToolMessage;
+
           if (!toolFn) {
             toolMsg = new ToolMessage({
               content: `Unknown tool: ${toolCall.name}`,
@@ -217,7 +263,7 @@ async function generateResponse(trimmedInput: string, appState: CliAppState, rl:
             }
           }
           return toolMsg;
-        })
+        }),
       );
       invokeMessages.push(...toolMessages);
     }
@@ -292,11 +338,22 @@ export async function startApp(config: AppConfig) {
     if (trimmedInput.startsWith("/")) {
       await processSlashCommand(trimmedInput, config, {
         addSystemMsg,
-        setCompletedMessages: (messages) => { appState.completedMessages = messages; },
-        setLastSources: (sources) => { appState.lastSources = sources; },
-        setAppState: (state) => { appState.state = state; },
-        setStatusMsg: (msg) => { appState.statusMsg = msg; },
-        exit: () => { rl.close(); process.exit(0); },
+        setCompletedMessages: (messages) => {
+          appState.completedMessages = messages;
+        },
+        setLastSources: (sources) => {
+          appState.lastSources = sources;
+        },
+        setAppState: (state) => {
+          appState.state = state;
+        },
+        setStatusMsg: (msg) => {
+          appState.statusMsg = msg;
+        },
+        exit: () => {
+          rl.close();
+          process.exit(0);
+        },
         lastSources: appState.lastSources,
       });
       continue;

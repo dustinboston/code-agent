@@ -11,15 +11,7 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { exec } from "child_process";
-import { promisify } from "util";
-
-
-/**
- * Promisified version of `child_process.exec`, used internally by
- * {@link runCommandTool} to `await` shell command completion without blocking
- * the Node.js event loop.
- */
-const execAsync = promisify(exec);
+// Promisify removed in favor of manual Promise around exec
 
 
 /**
@@ -43,10 +35,15 @@ export const runCommandTool = tool(
     try {
       // Pass a timeout to prevent the agent from hanging the app forever if it runs `vite -w` or similar.
       // Clear NODE_OPTIONS so the TUI's `tsx` loader doesn't interfere with Vitest's own worker threads.
-      const { stdout, stderr } = await execAsync(command, {
-        cwd: process.cwd(),
-        timeout: 30000,
-        env: { ...process.env, NODE_OPTIONS: undefined }
+      const { stdout, stderr } = await new Promise<{stdout: string; stderr: string}>((resolve, reject) => {
+        exec(command, {
+          cwd: process.cwd(),
+          timeout: 30000,
+          env: { ...process.env, NODE_OPTIONS: undefined }
+        }, (error, stdout, stderr) => {
+          if (error) reject(error);
+          else resolve({ stdout, stderr });
+        });
       });
       return [stdout, stderr].filter(Boolean).join("\n") || "(no output)";
     } catch (e: unknown) {

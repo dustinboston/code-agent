@@ -1,72 +1,61 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from "vitest"; // Import MockedFunction
+import { describe, it, expect, mock, beforeEach, Mock } from "bun:test";
 import type { ExecOptions, ExecException, ChildProcess } from "child_process";
 import { promisify } from "util";
 
-vi.mock("child_process", async () => {
-  const mockExec = vi.fn((
+// Mock child_process before importing shell.ts so that promisify(exec) uses our mock.
+// The factory creates exec inline (no module-level variable references) to avoid TDZ issues.
+// promisify.custom is set so that promisify(exec) returns our async wrapper.
+mock.module("child_process", () => {
+  const execMock = mock((
     command: string,
     options: ExecOptions | null | undefined,
     callback: ((error: ExecException | null, stdout: string, stderr: string) => void) | undefined
   ) => {
-    if (typeof callback === 'function') {
+    if (typeof callback === "function") {
       process.nextTick(() => callback(null, "", ""));
     }
     return {} as ChildProcess;
   });
 
-  Object.defineProperty(mockExec, promisify.custom, {
-    value: (command: string, options: ExecOptions) => {
-      return new Promise((resolve, reject) => {
-        mockExec(command, options, (error, stdout, stderr) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve({ stdout, stderr });
-          }
-        });
-      });
-    },
-    configurable: true,
-  });
 
-  return {
-    exec: mockExec,
-  };
+
+  return { exec: execMock };
 });
 
-// Now import the module after mocks are set up
+// Import after mock is registered
 import { runCommandTool } from "./shell";
-import { exec } from "child_process"; // Import exec from the mocked module
+import { exec } from "child_process"; // Gets the mocked exec
 
-// Get a reference to the mocked exec for testing
-const mockedExec = exec as MockedFunction<typeof exec>; // Use imported MockedFunction
+// Reference to the mock for assertions and per-test setup
+const mockedExec = exec as unknown as Mock<typeof exec>;
 
 describe("Shell Tools", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    mockedExec.mockImplementation((
+    mockedExec.mockClear();
+    // Restore default: successful empty output
+    (mockedExec as any).mockImplementation((
       command: string,
-      options: ExecOptions | null | undefined, // Use imported types
-      callback: ((error: ExecException | null, stdout: string, stderr: string) => void) | undefined // Use imported types
+      options: ExecOptions | null | undefined,
+      callback: ((error: ExecException | null, stdout: string, stderr: string) => void) | undefined
     ) => {
-      if (typeof callback === 'function') {
+      if (typeof callback === "function") {
         process.nextTick(() => callback(null, "", ""));
       }
-      return {} as ChildProcess; // Use imported type
+      return {} as ChildProcess;
     });
   });
 
   describe("runCommandTool", () => {
     it("should execute a command and return stdout", async () => {
-      mockedExec.mockImplementationOnce((
+      (mockedExec as any).mockImplementationOnce((
         command: string,
-        options: ExecOptions | null | undefined, // Use imported types
+        options: ExecOptions | null | undefined,
         callback: ((error: ExecException | null, stdout: string, stderr: string) => void) | undefined
       ) => {
-        if (typeof callback === 'function') {
+        if (typeof callback === "function") {
           process.nextTick(() => callback(null, "hello from stdout", ""));
         }
-        return {} as ChildProcess; // Use imported type
+        return {} as ChildProcess;
       });
 
       const result = await runCommandTool.call({ command: "echo hello" });
@@ -74,21 +63,20 @@ describe("Shell Tools", () => {
       expect(mockedExec).toHaveBeenCalledTimes(1);
       const [commandArg, optionsArg, callbackArg] = mockedExec.mock.calls[0];
       expect(commandArg).toBe("echo hello");
-      // Use non-null assertions as runCommandTool always passes an object for options
       expect(optionsArg!.cwd).toBe(process.cwd());
       expect(optionsArg!.timeout).toBe(30000);
       expect(optionsArg!.env!.NODE_OPTIONS).toBeUndefined();
-      expect(typeof callbackArg).toBe('function');
+      expect(typeof callbackArg).toBe("function");
       expect(result).toBe("hello from stdout");
     });
 
     it("should execute a command and return stderr", async () => {
-      mockedExec.mockImplementationOnce((
+      (mockedExec as any).mockImplementationOnce((
         command: string,
         options: ExecOptions | null | undefined,
         callback: ((error: ExecException | null, stdout: string, stderr: string) => void) | undefined
       ) => {
-        if (typeof callback === 'function') {
+        if (typeof callback === "function") {
           process.nextTick(() => callback(null, "", "hello from stderr"));
         }
         return {} as ChildProcess;
@@ -102,17 +90,17 @@ describe("Shell Tools", () => {
       expect(optionsArg!.cwd).toBe(process.cwd());
       expect(optionsArg!.timeout).toBe(30000);
       expect(optionsArg!.env!.NODE_OPTIONS).toBeUndefined();
-      expect(typeof callbackArg).toBe('function');
+      expect(typeof callbackArg).toBe("function");
       expect(result).toBe("hello from stderr");
     });
 
     it("should return combined stdout and stderr", async () => {
-      mockedExec.mockImplementationOnce((
+      (mockedExec as any).mockImplementationOnce((
         command: string,
         options: ExecOptions | null | undefined,
         callback: ((error: ExecException | null, stdout: string, stderr: string) => void) | undefined
       ) => {
-        if (typeof callback === 'function') {
+        if (typeof callback === "function") {
           process.nextTick(() => callback(null, "out", "err"));
         }
         return {} as ChildProcess;
@@ -123,12 +111,12 @@ describe("Shell Tools", () => {
     });
 
     it("should return '(no output)' if command produces no output", async () => {
-      mockedExec.mockImplementationOnce((
+      (mockedExec as any).mockImplementationOnce((
         command: string,
         options: ExecOptions | null | undefined,
         callback: ((error: ExecException | null, stdout: string, stderr: string) => void) | undefined
       ) => {
-        if (typeof callback === 'function') {
+        if (typeof callback === "function") {
           process.nextTick(() => callback(null, "", ""));
         }
         return {} as ChildProcess;
@@ -144,12 +132,12 @@ describe("Shell Tools", () => {
       error.stdout = "partial output";
       error.stderr = "error message";
 
-      mockedExec.mockImplementationOnce((
+      (mockedExec as any).mockImplementationOnce((
         command: string,
         options: ExecOptions | null | undefined,
         callback: ((error: ExecException | null, stdout: string, stderr: string) => void) | undefined
       ) => {
-        if (typeof callback === 'function') {
+        if (typeof callback === "function") {
           process.nextTick(() => callback(error, "partial output", "error message"));
         }
         return {} as ChildProcess;
@@ -163,7 +151,7 @@ describe("Shell Tools", () => {
       expect(optionsArg!.cwd).toBe(process.cwd());
       expect(optionsArg!.timeout).toBe(30000);
       expect(optionsArg!.env!.NODE_OPTIONS).toBeUndefined();
-      expect(typeof callbackArg).toBe('function');
+      expect(typeof callbackArg).toBe("function");
       expect(result).toContain("Exit code 1 (or timeout):\npartial output\nerror message");
     });
 
@@ -172,12 +160,13 @@ describe("Shell Tools", () => {
       timeoutError.killed = true;
       timeoutError.signal = "SIGTERM";
 
-      mockedExec.mockImplementationOnce((
+      // Use mockImplementationOnce instead of re-registering mock.module
+      (mockedExec as any).mockImplementationOnce((
         command: string,
         options: ExecOptions | null | undefined,
         callback: ((error: ExecException | null, stdout: string, stderr: string) => void) | undefined
       ) => {
-        if (typeof callback === 'function') {
+        if (typeof callback === "function") {
           setTimeout(() => {
             callback(timeoutError, "", "");
           }, 10);
@@ -190,15 +179,14 @@ describe("Shell Tools", () => {
     });
 
     it("should ensure NODE_OPTIONS is undefined in the child process environment", async () => {
-      // Set a dummy NODE_OPTIONS in the current process to ensure it's cleared
       process.env.NODE_OPTIONS = "--require tsx";
 
-      mockedExec.mockImplementationOnce((
+      (mockedExec as any).mockImplementationOnce((
         command: string,
         options: ExecOptions | null | undefined,
         callback: ((error: ExecException | null, stdout: string, stderr: string) => void) | undefined
       ) => {
-        if (typeof callback === 'function') {
+        if (typeof callback === "function") {
           process.nextTick(() => callback(null, "", ""));
         }
         return {} as ChildProcess;
@@ -212,12 +200,9 @@ describe("Shell Tools", () => {
       expect(optionsArg!.cwd).toBe(process.cwd());
       expect(optionsArg!.timeout).toBe(30000);
       expect(optionsArg!.env!.NODE_OPTIONS).toBeUndefined();
-      expect(typeof callbackArg).toBe('function');
+      expect(typeof callbackArg).toBe("function");
 
-      // Clean up the dummy NODE_OPTIONS
       delete process.env.NODE_OPTIONS;
     });
   });
-
 });
-
