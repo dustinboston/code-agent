@@ -1,6 +1,6 @@
 {
   "name": "code-agent",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Code Agent is an AI-powered command-line interface (CLI) application with an interactive terminal user interface (TUI) designed to assist with software engineering tasks.",
   "type": "module",
   "engines": {
