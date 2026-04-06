@@ -204,6 +204,39 @@ describe("runner", () => {
       expect((result[1] as AIMessage).content).toBe("Unknown tool: unknown_tool");
     });
 
+    it("should abort mid-stream when AbortSignal fires", async () => {
+      const controller = new AbortController();
+
+      mockAgent.stream.mockImplementationOnce(async function* () {
+        yield new AIMessageChunk({ content: "chunk one" });
+        controller.abort(new Error("INTERRUPTED: user stopped"));
+        yield new AIMessageChunk({ content: "chunk two" });
+        yield new AIMessageChunk({ content: "chunk three" });
+      });
+
+      await expect(
+        runner.runAgentLoop(mockAgent, [], mockCallbacks, controller.signal),
+      ).rejects.toThrow("INTERRUPTED:");
+
+      // Only the first chunk should have been processed before abort was detected
+      expect(mockCallbacks.onChunk).toHaveBeenCalledTimes(1);
+    });
+
+    it("should normalize a DOMException AbortError into an INTERRUPTED error", async () => {
+      const controller = new AbortController();
+      const abortError = Object.assign(new Error("The user aborted a request."), { name: "AbortError" });
+      controller.abort(new Error("INTERRUPTED: aborted"));
+
+      mockAgent.stream.mockImplementationOnce(async function* () {
+        throw abortError;
+        yield new AIMessageChunk({ content: "never" });
+      });
+
+      await expect(
+        runner.runAgentLoop(mockAgent, [], mockCallbacks, controller.signal),
+      ).rejects.toThrow("INTERRUPTED:");
+    });
+
     it("should handle tool invocation errors", async () => {
       const failingTool = {
         name: "failing_tool",

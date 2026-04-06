@@ -29,6 +29,7 @@ type AgentModel = ChatAnthropic | ChatOpenAI | ChatGoogle;
  * @property {Array<Runnable<any, any>>} llm - An array of language model instances used by the application.
  * @property {ChatPromptTemplate | null} chatPromptTemplate - The chat prompt template used for generating responses.
  * @property {ChatMessage[]} completedMessages - An array of messages that have been completed in the chat.
+ * @property {AbortController | null} abortController - Controller to abort the current generation.
  */
 interface CliAppState {
   state: "initializing" | "idle" | "generating" | "error" | "retrieving";
@@ -37,6 +38,7 @@ interface CliAppState {
   llm: Array<AgentModel>;
   chatPromptTemplate: ChatPromptTemplate | null;
   completedMessages: ChatMessage[];
+  abortController?: AbortController | null;
 }
 
 /**
@@ -54,6 +56,7 @@ async function initializeApp(config: AppConfig): Promise<CliAppState> {
     llm: [],
     chatPromptTemplate: null,
     completedMessages: [],
+    abortController: null,
   };
 
   try {
@@ -91,6 +94,8 @@ async function generateResponse(
   rl: readline.Interface,
   config: AppConfig,
 ): Promise<void> {
+  appState.abortController = new AbortController();
+
   const requestApproval = (command: string) => {
     const patterns = config.allowedCommands.map((p) => new RegExp(p));
     if (patterns.some((re) => re.test(command))) {
@@ -153,6 +158,7 @@ async function generateResponse(
       writeActivity,
       requestApproval,
       writeAgentMessage,
+      appState.abortController.signal,
     );
     const plannerTools: DynamicStructuredTool[] = [readFileTool, listDirectoryTool, sendMessageTool];
     const plannerWithTools = planner.bindTools(plannerTools);
@@ -169,74 +175,82 @@ async function generateResponse(
 
     let headerWritten = false;
 
-    invokeMessages = await runAgentLoop(plannerWithTools, invokeMessages, {
-      onChunk: (c, iterationText) => {
-        const text =
-          typeof c.content === "string"
-            ? c.content
-            : Array.isArray(c.content)
-              ? c.content.map((p) => (typeof p === "string" ? p : "text" in p ? p.text : "")).join("")
-              : "";
+    invokeMessages = await runAgentLoop(
+      plannerWithTools,
+      invokeMessages,
+      {
+        onChunk: (c, iterationText) => {
+          const text =
+            typeof c.content === "string"
+              ? c.content
+              : Array.isArray(c.content)
+                ? c.content.map((p) => (typeof p === "string" ? p : "text" in p ? p.text : "")).join("")
+                : "";
 
-        if (text) {
-          if (!headerWritten) {
-            process.stdout.write(
-              chalk.bold.green("Planner") + chalk.dim(` [${new Date().toLocaleTimeString()}]`) + "\n  ",
-            );
-            headerWritten = true;
+          if (text) {
+            if (!headerWritten) {
+              process.stdout.write(
+                chalk.bold.green("Planner") + chalk.dim(` [${new Date().toLocaleTimeString()}]`) + "\n  ",
+              );
+              headerWritten = true;
+            }
+            process.stdout.write(text.replace(/\n/g, "\n  "));
           }
-          process.stdout.write(text.replace(/\n/g, "\n  "));
-        }
-      },
-      onTurnComplete: async (accChunk, iterationText, currentInvokeMessages) => {
-        if (headerWritten) {
-          process.stdout.write("\n\n");
-          headerWritten = false;
-        }
+        },
+        onTurnComplete: async (accChunk, iterationText, currentInvokeMessages) => {
+          if (headerWritten) {
+            process.stdout.write("\n\n");
+            headerWritten = false;
+          }
 
-        if (iterationText.trim()) {
-          const plannerMsg: ChatMessage = {
-            id: randomUUID(),
-            role: "assistant",
-            content: iterationText,
-            timestamp: new Date().toISOString(),
-          };
-          appState.completedMessages = [...appState.completedMessages, plannerMsg].slice(-20);
-        }
-        return currentInvokeMessages;
+          if (iterationText.trim()) {
+            const plannerMsg: ChatMessage = {
+              id: randomUUID(),
+              role: "assistant",
+              content: iterationText,
+              timestamp: new Date().toISOString(),
+            };
+            appState.completedMessages = [...appState.completedMessages, plannerMsg].slice(-20);
+          }
+          return currentInvokeMessages;
+        },
+        onToolCall: (tc) => {
+          if (
+            tc.name === "send_message" &&
+            tc.args &&
+            typeof tc.args === "object" &&
+            "id" in tc.args &&
+            "message" in tc.args
+          ) {
+            const args = tc.args as { id: string; message: string };
+            const target = args.id.charAt(0).toUpperCase() + args.id.slice(1);
+            const m: ChatMessage = {
+              id: randomUUID(),
+              role: "system",
+              content: `[Planner → ${target}]\n${args.message}`,
+              timestamp: new Date().toISOString(),
+            };
+            printChatMessage(process.stdout.write.bind(process.stdout), m);
+            appState.completedMessages = [...appState.completedMessages, m].slice(-20);
+          }
+        },
+        onActivity: writeActivity,
+        onStatus: (msg) => {
+          appState.statusMsg = msg;
+        },
+        requestApproval: requestApproval,
+        agentName: "Planner",
+        agentTools: plannerTools,
       },
-      onToolCall: (tc) => {
-        if (
-          tc.name === "send_message" &&
-          tc.args &&
-          typeof tc.args === "object" &&
-          "id" in tc.args &&
-          "message" in tc.args
-        ) {
-          const args = tc.args as { id: string; message: string };
-          const target = args.id.charAt(0).toUpperCase() + args.id.slice(1);
-          const m: ChatMessage = {
-            id: randomUUID(),
-            role: "system",
-            content: `[Planner → ${target}]\n${args.message}`,
-            timestamp: new Date().toISOString(),
-          };
-          printChatMessage(process.stdout.write.bind(process.stdout), m);
-          appState.completedMessages = [...appState.completedMessages, m].slice(-20);
-        }
-      },
-      onActivity: writeActivity,
-      onStatus: (msg) => {
-        appState.statusMsg = msg;
-      },
-      requestApproval: requestApproval,
-      agentName: "Planner",
-      agentTools: plannerTools,
-    });
+      appState.abortController.signal,
+    );
 
     appState.state = "idle";
     appState.statusMsg = "";
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith("INTERRUPTED:")) {
+      throw err;
+    }
     appState.errorMsg = `Generation failed: ${err instanceof Error ? err.message : String(err)}`;
     appState.state = "error";
     console.error(chalk.red(appState.errorMsg));
@@ -274,6 +288,8 @@ export async function startApp(config: AppConfig) {
     appState.completedMessages = [...appState.completedMessages, msg].slice(-20);
   };
 
+  let nextInput = "";
+
   while (true) {
     if (appState.state === "error") {
       console.log(chalk.red(`Error: ${appState.errorMsg}`));
@@ -298,16 +314,21 @@ export async function startApp(config: AppConfig) {
       console.log(chalk.dim(`Status: ${appState.statusMsg}`));
     }
 
-    let input = "";
-    try {
-      input = await rl.question(chalk.bold.cyan("You:\n> "));
-    } catch (err: any) {
-      if (err?.code === "ABORT_ERR" || err?.name === "AbortError") {
-        break;
+    let trimmedInput = nextInput;
+    nextInput = "";
+
+    if (!trimmedInput) {
+      let input = "";
+      try {
+        input = await rl.question(chalk.bold.cyan("You:\n> "));
+      } catch (err: any) {
+        if (err?.code === "ABORT_ERR" || err?.name === "AbortError") {
+          break;
+        }
+        throw err;
       }
-      throw err;
+      trimmedInput = input.trim();
     }
-    const trimmedInput = input.trim();
 
     if (!trimmedInput) {
       continue;
@@ -327,7 +348,26 @@ export async function startApp(config: AppConfig) {
       continue;
     }
 
-    await generateResponse(trimmedInput, appState, rl, config);
+    const lineHandler = (line: string) => {
+      const trimmed = line.trim();
+      if (trimmed === "/stop") {
+        appState.abortController?.abort(new Error("INTERRUPTED:"));
+      }
+    };
+    rl.on("line", lineHandler);
+
+    try {
+      await generateResponse(trimmedInput, appState, rl, config);
+    } catch (err: any) {
+      if (err instanceof Error && err.message.startsWith("INTERRUPTED:")) {
+        await addSystemMsg("[Interrupted by user]");
+        appState.state = "idle";
+        appState.errorMsg = "";
+      }
+    } finally {
+      rl.off("line", lineHandler);
+      appState.abortController = null;
+    }
   }
 
   rl.close();

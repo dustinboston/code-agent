@@ -29,13 +29,6 @@ mock.module("../llm/llm", () => ({
 mock.module("../llm/prompt", () => ({
   createPlannerPrompt: mock(() => ({})),
 }));
-mock.module("./commands", () => ({
-  processSlashCommand: mock((command, config, callbacks) => {
-    if (command === "/quit") {
-      callbacks.exit();
-    }
-  }),
-})); // Mock processSlashCommand
 
 describe("startApp", () => {
   const mockConfig: AppConfig = {

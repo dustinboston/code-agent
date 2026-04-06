@@ -19,6 +19,7 @@ export async function processSlashCommand(cmd: string, config: AppConfig, callba
           "/help              — show this message",
           "/clear             — clear conversation history",
           "/config            — show current configuration",
+          "/stop              — interrupt the current AI response",
           "/quit              — exit the application",
         ].join("\n"),
       );
@@ -31,6 +32,10 @@ export async function processSlashCommand(cmd: string, config: AppConfig, callba
 
     case "config":
       await addSystemMsg(JSON.stringify(config, null, 2));
+      break;
+
+    case "stop":
+      await addSystemMsg("The /stop command can only be used while the AI is generating a response.");
       break;
 
     case "quit":

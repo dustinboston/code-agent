@@ -58,3 +58,4 @@ bun install
 - **Interactive TUI**: A rich terminal user interface for an engaging user experience.
 - **Multi-Agent Collaboration**: Utilizes specialized AI agents to streamline development workflows.
 - **Safe Execution**: Emphasizes cautious and reversible actions, especially for shared or critical operations.
+- **Platform Agnostic**: Reads any agents file, CLAUDE.md, GEMINI.md, AGENTS.md, etc. Works with Anthropic, Gemini, or OpenAI models, all configurable.
