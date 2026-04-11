@@ -1,7 +1,17 @@
 node_modules/
 dist/
+build/
 data/
 bin/
 
 # Real credentials — never commit this
 .env
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# IDE configs
+.vscode/
+.idea/
+*.swp

@@ -16,7 +16,55 @@
 import { config as dotenvConfig } from "dotenv";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
+import { z } from "zod";
 import type { AppConfig } from "./types.js";
+
+/**
+ * Zod schema for a single agent role configuration block.
+ *
+ * All fields are optional so the schema can validate partial overrides from
+ * the config file — defaults are applied later by the merge logic.
+ */
+const AgentConfigSchema = z.object({
+  provider: z.enum(["anthropic", "openai", "google"]).optional(),
+  model: z.string().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().int().positive().optional(),
+});
+
+/**
+ * Zod schema for the `code-agent.config.json` file.
+ *
+ * Every top-level key is optional since the file only needs to override a
+ * subset of the defaults.
+ */
+const AppConfigSchema = z.object({
+  planner: AgentConfigSchema.optional(),
+  developer: AgentConfigSchema.optional(),
+  tester: AgentConfigSchema.optional(),
+  allowedCommands: z.array(z.string()).optional(),
+});
+
+/**
+ * Zod schema for a fully-resolved agent config block (all fields required).
+ * Used to validate the merged result after defaults have been applied.
+ */
+const FullAgentConfigSchema = z.object({
+  provider: z.enum(["anthropic", "openai", "google"]),
+  model: z.string(),
+  temperature: z.number().min(0).max(2),
+  maxTokens: z.number().int().positive(),
+});
+
+/**
+ * Zod schema for the fully-resolved application config (all fields required).
+ */
+const FullAppConfigSchema = z.object({
+  planner: FullAgentConfigSchema,
+  developer: FullAgentConfigSchema,
+  tester: FullAgentConfigSchema,
+  allowedCommands: z.array(z.string()),
+});
 
 // Load .env on import
 dotenvConfig();
@@ -81,13 +129,21 @@ const DEFAULTS: AppConfig = {
  * @returns A partial {@link AppConfig} containing only the fields present in
  *   the JSON file, or `{}` if the file is absent or malformed.
  */
-function loadFileConfig(): Partial<AppConfig> {
+function loadFileConfig(): z.infer<typeof AppConfigSchema> {
   const configPath = resolve(CONFIG_FILE);
   if (!existsSync(configPath)) return {};
   try {
-    return JSON.parse(readFileSync(configPath, "utf-8")) as Partial<AppConfig>;
-  } catch {
-    console.warn("Warning: could not parse code-agent.config.json, using defaults.");
+    const raw: unknown = JSON.parse(readFileSync(configPath, "utf-8"));
+    return AppConfigSchema.parse(raw);
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      console.warn("Warning: code-agent.config.json has invalid fields, using defaults.");
+      for (const issue of e.issues) {
+        console.warn(`  - ${issue.path.join(".")}: ${issue.message}`);
+      }
+    } else {
+      console.warn("Warning: could not parse code-agent.config.json, using defaults.");
+    }
     return {};
   }
 }
@@ -112,12 +168,14 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const merge = <T extends object>(base: T, ...layers: Array<Partial<T> | undefined>): T =>
     Object.assign({}, base, ...layers);
 
-  return {
+  const merged = {
     planner: merge(DEFAULTS.planner, fileConfig.planner, overrides.planner),
     developer: merge(DEFAULTS.developer, fileConfig.developer, overrides.developer),
     tester: merge(DEFAULTS.tester, fileConfig.tester, overrides.tester),
     allowedCommands: overrides.allowedCommands ?? fileConfig.allowedCommands ?? DEFAULTS.allowedCommands,
   };
+
+  return FullAppConfigSchema.parse(merged);
 }
 
 /**

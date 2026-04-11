@@ -38,6 +38,7 @@
   "prettier": {
     "printWidth": 120
   },
+  "license": "CC-BY-NC-4.0",
   "module": "src/index.ts",
   "private": true
 }
