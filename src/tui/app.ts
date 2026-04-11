@@ -251,9 +251,10 @@ async function generateResponse(
     if (err instanceof Error && err.message.startsWith("INTERRUPTED:")) {
       throw err;
     }
-    appState.errorMsg = `Generation failed: ${err instanceof Error ? err.message : String(err)}`;
-    appState.state = "error";
-    console.error(chalk.red(appState.errorMsg));
+    const errorMsg = `Generation failed: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(chalk.red(errorMsg));
+    appState.state = "idle";
+    appState.errorMsg = "";
   }
 }
 
