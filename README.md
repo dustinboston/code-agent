@@ -1,5 +1,7 @@
 # Code Agent
 
+![A secret agent with a hat and sunglasses](./logo.png)
+
 Code Agent is an AI-powered command-line interface (CLI) application with an interactive terminal user interface (TUI) designed to assist with software engineering tasks.
 
 ## Overview
