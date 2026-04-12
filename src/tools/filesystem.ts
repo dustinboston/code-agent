@@ -6,10 +6,11 @@
  * filesystem. All tool arguments are validated at runtime via Zod schemas
  * before the underlying `fs/promises` calls are made.
  */
-import { tool, type DynamicStructuredTool } from "@langchain/core/tools";
-import { z } from "zod";
-import { resolve, dirname, relative, isAbsolute } from "path";
-import { readFile, rm, readdir, mkdir, writeFile } from "fs/promises";
+import process from 'node:process';
+import {resolve, dirname, relative, isAbsolute} from 'node:path';
+import {readFile, rm, readdir, mkdir, writeFile} from 'node:fs/promises';
+import {tool, type DynamicStructuredTool} from '@langchain/core/tools';
+import {z} from 'zod';
 
 /**
  * Ensures the resolved path resides within the current working directory.
@@ -30,22 +31,23 @@ export function isSafePath(targetPath: string): boolean {
  * so the calling agent can self-correct.
  */
 export const readFileTool = tool(
-  async ({ path }: { path: string }) => {
+  async ({path}: {path: string}) => {
     try {
       const resolved = resolve(path);
       if (!isSafePath(resolved)) {
         return `Error: Access denied. Path "${path}" is outside the workspace sandbox.`;
       }
-      return await readFile(resolved, "utf-8");
-    } catch (e) {
-      return `Error reading file: ${e instanceof Error ? e.message : String(e)}`;
+
+      return await readFile(resolved, 'utf8');
+    } catch (error) {
+      return `Error reading file: ${error instanceof Error ? error.message : String(error)}`;
     }
   },
   {
-    name: "read_file",
-    description: "Read the full contents of a file. Returns the file contents as text.",
+    name: 'read_file',
+    description: 'Read the full contents of a file. Returns the file contents as text.',
     schema: z.object({
-      path: z.string().describe("Path to the file"),
+      path: z.string().describe('Path to the file'),
     }),
   },
 );
@@ -57,23 +59,24 @@ export const readFileTool = tool(
  * are resolved against `process.cwd()`. Returns an error string on failure.
  */
 export const listDirectoryTool = tool(
-  async ({ path }: { path: string }) => {
+  async ({path}: {path: string}) => {
     try {
       const resolved = resolve(path);
       if (!isSafePath(resolved)) {
         return `Error: Access denied. Path "${path}" is outside the workspace sandbox.`;
       }
-      const entries = await readdir(resolved, { withFileTypes: true });
-      return entries.map((e) => `${e.isDirectory() ? "[dir] " : "[file]"} ${e.name}`).join("\n");
-    } catch (e) {
-      return `Error listing directory: ${e instanceof Error ? e.message : String(e)}`;
+
+      const entries = await readdir(resolved, {withFileTypes: true});
+      return entries.map((entry) => `${entry.isDirectory() ? '[dir] ' : '[file]'} ${entry.name}`).join('\n');
+    } catch (error) {
+      return `Error listing directory: ${error instanceof Error ? error.message : String(error)}`;
     }
   },
   {
-    name: "list_directory",
-    description: "List the files and subdirectories at the given path.",
+    name: 'list_directory',
+    description: 'List the files and subdirectories at the given path.',
     schema: z.object({
-      path: z.string().describe("Path to the directory"),
+      path: z.string().describe('Path to the directory'),
     }),
   },
 );
@@ -85,25 +88,26 @@ export const listDirectoryTool = tool(
  * Returns a confirmation string on success or an error string on failure.
  */
 export const writeFileTool = tool(
-  async ({ path, content }: { path: string; content: string }) => {
+  async ({path, content}: {path: string; content: string}) => {
     try {
       const resolved = resolve(path);
       if (!isSafePath(resolved)) {
         return `Error: Access denied. Path "${path}" is outside the workspace sandbox.`;
       }
-      await mkdir(dirname(resolved), { recursive: true });
-      await writeFile(resolved, content, "utf-8");
+
+      await mkdir(dirname(resolved), {recursive: true});
+      await writeFile(resolved, content, 'utf8');
       return `File written: ${resolved}`;
-    } catch (e) {
-      return `Error writing file: ${e instanceof Error ? e.message : String(e)}`;
+    } catch (error) {
+      return `Error writing file: ${error instanceof Error ? error.message : String(error)}`;
     }
   },
   {
-    name: "write_file",
-    description: "Write content to a file, creating parent directories as needed. Overwrites existing files.",
+    name: 'write_file',
+    description: 'Write content to a file, creating parent directories as needed. Overwrites existing files.',
     schema: z.object({
-      path: z.string().describe("Path to the file"),
-      content: z.string().describe("Content to write"),
+      path: z.string().describe('Path to the file'),
+      content: z.string().describe('Content to write'),
     }),
   },
 );
@@ -114,23 +118,24 @@ export const writeFileTool = tool(
  * confirmation string on success or an error string on failure.
  */
 export const deletePathTool = tool(
-  async ({ path }: { path: string }) => {
+  async ({path}: {path: string}) => {
     try {
       const resolved = resolve(path);
       if (!isSafePath(resolved)) {
         return `Error: Access denied. Path "${path}" is outside the workspace sandbox.`;
       }
-      await rm(resolved, { recursive: true, force: true });
+
+      await rm(resolved, {recursive: true, force: true});
       return `Deleted: ${resolved}`;
-    } catch (e) {
-      return `Error deleting path: ${e instanceof Error ? e.message : String(e)}`;
+    } catch (error) {
+      return `Error deleting path: ${error instanceof Error ? error.message : String(error)}`;
     }
   },
   {
-    name: "delete_path",
-    description: "Delete a file or directory (including all contents). Use with care — this is irreversible.",
+    name: 'delete_path',
+    description: 'Delete a file or directory (including all contents). Use with care — this is irreversible.',
     schema: z.object({
-      path: z.string().describe("Path to the file or directory to delete"),
+      path: z.string().describe('Path to the file or directory to delete'),
     }),
   },
 );

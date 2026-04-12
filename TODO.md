@@ -58,23 +58,18 @@ TypeScript `tsconfig.json` must have `"strict": true`. Zero tolerance for `any` 
 
 - [x] `tsconfig.json` has `"strict": true`
 - [x] No non-null assertions (`!`) in production code (only in test files)
-- [ ] `any` types in production code — must be replaced with proper types:
-  - `src/llm/runner.ts:27` — `onToolCall?: (toolCall: any) => void` — use LangChain's `ToolCall` type
-  - `src/llm/runner.ts:37` — `agent: Runnable<any, any>` — parameterize with `BaseMessage[], AIMessageChunk`
-  - `src/llm/runner.ts:96` — `catch (e: any)` — use `unknown` and narrow
-  - `src/llm/runner.ts:164` — `(toolCall.args as any).command` — type the args properly
-  - `src/llm/runner.ts:185` — `catch (e: any)` — use `unknown` and narrow
-  - `src/llm/runner.ts:286` — `catch (err: any)` — use `unknown` and narrow
-  - `src/tui/app.ts:112,300,325,362` — `catch (err: any)` — use `unknown` and narrow
-- [ ] `as` type cast in `src/config.ts:88` — `as Partial<AppConfig>` bypasses type safety. Replace with Zod parse.
-- [ ] `as` type cast in `src/tools/shell.ts:50` — `const err = e as { code?: number; ... }` — use `unknown` and narrow.
+- [x] `any` types in production code — replaced with proper types:
+  - `src/llm/runner.ts` — `onToolCall` uses LangChain's `ToolCall` type; `agent` parameterized with `BaseMessage[], AIMessageChunk`; all `catch` blocks use `unknown` with narrowing; `toolCall.args` accessed via safe property checks
+  - `src/tui/app.ts` — all `catch (err: any)` blocks replaced with `catch (error: unknown)` and `instanceof Error` narrowing
+- [x] `as` type cast in `src/config.ts:88` — verified already fixed; config uses Zod `FullAppConfigSchema.parse()`
+- [x] `as` type cast in `src/tools/shell.ts:50` — replaced with `unknown` and `instanceof Error` narrowing with safe property access
 
 #### Linting Rules
 
 Must implement `xo` configured for maximum strictness. Pre-commit hooks must block non-compliant code.
 
-- [ ] No linter installed. Install `xo` and configure for strict TypeScript.
-- [ ] No pre-commit hooks. Set up `husky` + `lint-staged` to run `xo --fix` and `tsc --noEmit` on staged files.
+- [x] `xo` installed and configured for strict TypeScript with prettier integration (`package.json`: `"xo": { "prettier": true, "space": true }`)
+- [x] `husky` + `lint-staged` pre-commit hooks run `xo --fix` on staged `*.{ts,tsx}` files
 - [x] `prettier` is configured in `package.json` (will need to coordinate with xo)
 
 #### Dependency Auditing

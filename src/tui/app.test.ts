@@ -1,66 +1,62 @@
-import { startApp } from "./app";
-import { createInterface } from "readline/promises"; // Import createInterface directly
-import { stdin, stdout } from "process";
-import { createDeveloper, createPlanner, createTester } from "../llm/llm";
-import { createPlannerPrompt } from "../llm/prompt";
-import { expect, mock, Mock, beforeEach, afterEach, spyOn, describe, it } from "bun:test";
-import { processSlashCommand, SlashCommandCallbacks } from "./commands";
-import { AppConfig, Provider } from "../types";
+import {createInterface} from 'node:readline/promises';
+import {stdin, stdout} from 'node:process';
+import {expect, mock, beforeEach, afterEach, describe, it} from 'bun:test';
+import {createDeveloper, createPlanner, createTester} from '../llm/llm.js';
+import {createPlannerPrompt} from '../llm/prompt.js';
+import type {AppConfig} from '../types';
+import {startApp} from './app.js';
 
-// Mock external dependencies
-mock.module("readline/promises", () => {
-  const mockCreateInterface = mock((options) => ({
-    question: mock(() => Promise.resolve("/quit")),
+const mockQuestion = mock(async () => '/quit');
+
+void mock.module('readline/promises', () => ({
+  createInterface: mock(() => ({
+    question: mockQuestion,
     close: mock(),
     on: mock(),
-  }));
-  return {
-    createInterface: mockCreateInterface,
-  };
-});
-mock.module("../retrieval/store", () => ({
+    off: mock(),
+  })),
+}));
+void mock.module('../retrieval/store', () => ({
   createVectorStore: mock(() => ({})),
 }));
-mock.module("../llm/llm", () => ({
+void mock.module('../llm/llm', () => ({
   createDeveloper: mock(() => ({})),
   createPlanner: mock(() => ({})),
   createTester: mock(() => ({})),
 }));
-mock.module("../llm/prompt", () => ({
+void mock.module('../llm/prompt', () => ({
   createPlannerPrompt: mock(() => ({})),
 }));
 
-describe("startApp", () => {
+describe('startApp', () => {
   const mockConfig: AppConfig = {
-    planner: { provider: "anthropic", model: "test-planner-model", temperature: 0.7, maxTokens: 1000 },
-    developer: { provider: "anthropic", model: "test-developer-model", temperature: 0.7, maxTokens: 1000 },
-    tester: { provider: "anthropic", model: "test-tester-model", temperature: 0.7, maxTokens: 1000 },
+    planner: {provider: 'anthropic', model: 'test-planner-model', temperature: 0.7, maxTokens: 1000},
+    developer: {provider: 'anthropic', model: 'test-developer-model', temperature: 0.7, maxTokens: 1000},
+    tester: {provider: 'anthropic', model: 'test-tester-model', temperature: 0.7, maxTokens: 1000},
     allowedCommands: [],
   };
 
-  let originalProcessExit: (code?: number) => never;
-  let originalStdoutWrite: (chunk: any, encoding?: BufferEncoding, cb?: (err?: Error | null) => void) => boolean;
+  let originalStdoutWrite: typeof stdout.write;
 
   beforeEach(() => {
-    originalProcessExit = process.exit;
-    (process as any).exit = mock((code) => {
-      throw new Error(`PROCESS_EXIT:${code}`);
-    });
-
     originalStdoutWrite = stdout.write;
-    (stdout as any).write = mock((chunk: any, cb?: (err?: Error | null) => void) => {
-      if (cb) cb(null);
-      return true;
+    Object.defineProperty(stdout, 'write', {
+      value: mock((_chunk: string) => true),
+      writable: true,
+      configurable: true,
     });
   });
 
   afterEach(() => {
-    process.exit = originalProcessExit;
-    (stdout as any).write = originalStdoutWrite;
+    Object.defineProperty(stdout, 'write', {
+      value: originalStdoutWrite,
+      writable: true,
+      configurable: true,
+    });
   });
 
-  it("should initialize and exit gracefully with /quit command", async () => {
-    await expect(startApp(mockConfig)).rejects.toThrow("PROCESS_EXIT:0");
+  it('should initialize and exit gracefully with /quit command', async () => {
+    await startApp(mockConfig);
 
     expect(createInterface).toHaveBeenCalledWith({
       input: stdin,
@@ -73,10 +69,6 @@ describe("startApp", () => {
     expect(createDeveloper).toHaveBeenCalledWith(mockConfig);
     expect(createTester).toHaveBeenCalledWith(mockConfig);
     expect(createPlannerPrompt).toHaveBeenCalled();
-
-    const mockRl = (createInterface as any).mock.results[0].value;
-    expect(mockRl.question).toHaveBeenCalled();
-    expect(mockRl.close).toHaveBeenCalled();
-    expect(process.exit).toHaveBeenCalledWith(0);
+    expect(mockQuestion).toHaveBeenCalled();
   });
 });

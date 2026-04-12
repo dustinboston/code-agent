@@ -13,7 +13,10 @@
     "dev": "bun src/index.ts",
     "build": "bun build src/index.ts --compile --outfile bin/ca",
     "test": "bun test ./src/",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "lint": "xo",
+    "lint:fix": "xo --fix",
+    "prepare": "husky"
   },
   "dependencies": {
     "@langchain/anthropic": "^1.0.0",
@@ -28,12 +31,24 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/bun": "latest",
     "@types/node": "^20.0.0",
     "@types/pdf-parse": "^1.1.4",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "tsup": "^8.0.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",
-    "@types/bun": "latest"
+    "xo": "^2.0.2"
+  },
+  "xo": {
+    "prettier": true,
+    "space": true
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "xo --fix"
+    ]
   },
   "prettier": {
     "printWidth": 120

@@ -4,7 +4,7 @@
  * Layered configuration resolution for the Code Agent application.
  *
  * Configuration is assembled from four sources in ascending priority order:
- * 1. Built-in {@link DEFAULTS} — always present.
+ * 1. Built-in {@link defaults} — always present.
  * 2. `code-agent.config.json` in the working directory — optional file override.
  * 3. Environment variables — loaded via `dotenv`.
  * 4. CLI-supplied overrides passed directly to {@link loadConfig}.
@@ -13,11 +13,12 @@
  * {@link validateConfig} to assert that all required secrets are present
  * before making any network calls.
  */
-import { config as dotenvConfig } from "dotenv";
-import { existsSync, readFileSync } from "fs";
-import { resolve } from "path";
-import { z } from "zod";
-import type { AppConfig } from "./types.js";
+import process from 'node:process';
+import {existsSync, readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {config as dotenvConfig} from 'dotenv';
+import {z} from 'zod';
+import type {AppConfig} from './types.js';
 
 /**
  * Zod schema for a single agent role configuration block.
@@ -25,8 +26,8 @@ import type { AppConfig } from "./types.js";
  * All fields are optional so the schema can validate partial overrides from
  * the config file — defaults are applied later by the merge logic.
  */
-const AgentConfigSchema = z.object({
-  provider: z.enum(["anthropic", "openai", "google"]).optional(),
+const agentConfigSchema = z.object({
+  provider: z.enum(['anthropic', 'openai', 'google']).optional(),
   model: z.string().optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().positive().optional(),
@@ -38,10 +39,10 @@ const AgentConfigSchema = z.object({
  * Every top-level key is optional since the file only needs to override a
  * subset of the defaults.
  */
-const AppConfigSchema = z.object({
-  planner: AgentConfigSchema.optional(),
-  developer: AgentConfigSchema.optional(),
-  tester: AgentConfigSchema.optional(),
+const appConfigSchema = z.object({
+  planner: agentConfigSchema.optional(),
+  developer: agentConfigSchema.optional(),
+  tester: agentConfigSchema.optional(),
   allowedCommands: z.array(z.string()).optional(),
 });
 
@@ -49,8 +50,8 @@ const AppConfigSchema = z.object({
  * Zod schema for a fully-resolved agent config block (all fields required).
  * Used to validate the merged result after defaults have been applied.
  */
-const FullAgentConfigSchema = z.object({
-  provider: z.enum(["anthropic", "openai", "google"]),
+const fullAgentConfigSchema = z.object({
+  provider: z.enum(['anthropic', 'openai', 'google']),
   model: z.string(),
   temperature: z.number().min(0).max(2),
   maxTokens: z.number().int().positive(),
@@ -59,17 +60,17 @@ const FullAgentConfigSchema = z.object({
 /**
  * Zod schema for the fully-resolved application config (all fields required).
  */
-const FullAppConfigSchema = z.object({
-  planner: FullAgentConfigSchema,
-  developer: FullAgentConfigSchema,
-  tester: FullAgentConfigSchema,
+const fullAppConfigSchema = z.object({
+  planner: fullAgentConfigSchema,
+  developer: fullAgentConfigSchema,
+  tester: fullAgentConfigSchema,
   allowedCommands: z.array(z.string()),
 });
 
 // Load .env on import
 dotenvConfig();
 
-const CONFIG_FILE = "./code-agent.config.json";
+const configFile = './code-agent.config.json';
 
 /**
  * Default and max tokens, from Claude Code src/utils/context.ts
@@ -96,23 +97,23 @@ const CONFIG_FILE = "./code-agent.config.json";
  *   - Upper limit: 1_048_576
  *   - https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite-preview
  */
-const DEFAULTS: AppConfig = {
+const defaults: AppConfig = {
   planner: {
-    provider: "anthropic",
-    model: "claude-sonnet-4-6",
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-6',
     temperature: 0.7,
     maxTokens: 128_000,
   },
   developer: {
-    provider: "anthropic",
-    model: "claude-sonnet-4-6",
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-6',
     temperature: 0.3,
     maxTokens: 128_000,
   },
   // The tester agent is configured with a lower temperature to act as a QA Engineer, ensuring reproducible test generation.
   tester: {
-    provider: "anthropic",
-    model: "claude-sonnet-4-6",
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-6',
     temperature: 0.3,
     maxTokens: 128_000,
   },
@@ -129,21 +130,22 @@ const DEFAULTS: AppConfig = {
  * @returns A partial {@link AppConfig} containing only the fields present in
  *   the JSON file, or `{}` if the file is absent or malformed.
  */
-function loadFileConfig(): z.infer<typeof AppConfigSchema> {
-  const configPath = resolve(CONFIG_FILE);
+function loadFileConfig(): z.infer<typeof appConfigSchema> {
+  const configPath = resolve(configFile);
   if (!existsSync(configPath)) return {};
   try {
-    const raw: unknown = JSON.parse(readFileSync(configPath, "utf-8"));
-    return AppConfigSchema.parse(raw);
-  } catch (e) {
-    if (e instanceof z.ZodError) {
-      console.warn("Warning: code-agent.config.json has invalid fields, using defaults.");
-      for (const issue of e.issues) {
-        console.warn(`  - ${issue.path.join(".")}: ${issue.message}`);
+    const raw: unknown = JSON.parse(readFileSync(configPath, 'utf8'));
+    return appConfigSchema.parse(raw);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      console.warn('Warning: code-agent.config.json has invalid fields, using defaults.');
+      for (const issue of error.issues) {
+        console.warn(`  - ${issue.path.join('.')}: ${issue.message}`);
       }
     } else {
-      console.warn("Warning: could not parse code-agent.config.json, using defaults.");
+      console.warn('Warning: could not parse code-agent.config.json, using defaults.');
     }
+
     return {};
   }
 }
@@ -165,17 +167,25 @@ function loadFileConfig(): z.infer<typeof AppConfigSchema> {
  */
 export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const fileConfig = loadFileConfig();
-  const merge = <T extends object>(base: T, ...layers: Array<Partial<T> | undefined>): T =>
-    Object.assign({}, base, ...layers);
+  const merge = <T extends Record<string, unknown>>(base: T, ...layers: Array<Partial<T> | undefined>): T => {
+    let result: T = {...base};
+    for (const layer of layers) {
+      if (layer) {
+        result = {...result, ...layer};
+      }
+    }
 
-  const merged = {
-    planner: merge(DEFAULTS.planner, fileConfig.planner, overrides.planner),
-    developer: merge(DEFAULTS.developer, fileConfig.developer, overrides.developer),
-    tester: merge(DEFAULTS.tester, fileConfig.tester, overrides.tester),
-    allowedCommands: overrides.allowedCommands ?? fileConfig.allowedCommands ?? DEFAULTS.allowedCommands,
+    return result;
   };
 
-  return FullAppConfigSchema.parse(merged);
+  const merged = {
+    planner: merge(defaults.planner, fileConfig.planner, overrides.planner),
+    developer: merge(defaults.developer, fileConfig.developer, overrides.developer),
+    tester: merge(defaults.tester, fileConfig.tester, overrides.tester),
+    allowedCommands: overrides.allowedCommands ?? fileConfig.allowedCommands ?? defaults.allowedCommands,
+  };
+
+  return fullAppConfigSchema.parse(merged);
 }
 
 /**
@@ -189,19 +199,16 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
  * message is printed to `stderr` and the process exits with code `1`.
  */
 export function validateConfig(config: AppConfig): void {
-  const required: Set<string> = new Set();
-  required.add(config.planner.provider);
-  required.add(config.developer.provider);
-  required.add(config.tester.provider);
+  const required = new Set<string>([config.planner.provider, config.developer.provider, config.tester.provider]);
 
   const missing: string[] = [];
-  if (required.has("anthropic") && !process.env.ANTHROPIC_API_KEY) missing.push("ANTHROPIC_API_KEY");
-  if (required.has("openai") && !process.env.OPENAI_API_KEY) missing.push("OPENAI_API_KEY");
-  if (required.has("google") && !process.env.GOOGLE_API_KEY) missing.push("GOOGLE_API_KEY");
+  if (required.has('anthropic') && !process.env.ANTHROPIC_API_KEY) missing.push('ANTHROPIC_API_KEY');
+  if (required.has('openai') && !process.env.OPENAI_API_KEY) missing.push('OPENAI_API_KEY');
+  if (required.has('google') && !process.env.GOOGLE_API_KEY) missing.push('GOOGLE_API_KEY');
 
   if (missing.length > 0) {
-    console.error(`\nMissing required environment variables:\n  ${missing.join("\n  ")}`);
-    console.error("\nCopy .env.example to .env and fill in your API keys.\n");
-    process.exit(1);
+    throw new Error(
+      `Missing required environment variables:\n  ${missing.join('\n  ')}\n\nCopy .env.example to .env and fill in your API keys.`,
+    );
   }
 }

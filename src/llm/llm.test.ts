@@ -1,63 +1,57 @@
-import { describe, it, expect, beforeEach, mock, Mock } from "bun:test";
-import { createPlanner, createDeveloper, createTester } from "./llm.js";
-import type { AppConfig, Provider } from "../types.js";
+import {describe, it, expect, beforeEach, mock} from 'bun:test';
+import type {AppConfig} from '../types.js';
+import {createPlanner, createDeveloper, createTester} from './llm.js';
 
-// Import the actual classes to get their types, Bun will mock them
-import { ChatAnthropic } from "@langchain/anthropic";
-import { ChatOpenAI } from "@langchain/openai";
-import { ChatGoogle } from "@langchain/google";
+const mockChatAnthropicConstructor = mock(() => undefined);
+const mockChatOpenAiConstructor = mock(() => undefined);
+const mockChatGoogleConstructor = mock(() => undefined);
 
-let mockChatAnthropicConstructor: Mock<any>;
-let mockChatOpenAIConstructor: Mock<any>;
-let mockChatGoogleConstructor: Mock<any>;
-
-// Tell Bun to mock these modules and provide our mock constructors
-mock.module("@langchain/anthropic", () => ({
-  ChatAnthropic: (mockChatAnthropicConstructor = mock(() => {})),
+void mock.module('@langchain/anthropic', () => ({
+  // eslint-disable-next-line @typescript-eslint/naming-convention -- class name from module API
+  ChatAnthropic: mockChatAnthropicConstructor,
 }));
-mock.module("@langchain/openai", () => ({
-  ChatOpenAI: (mockChatOpenAIConstructor = mock(() => {})),
+void mock.module('@langchain/openai', () => ({
+  // eslint-disable-next-line @typescript-eslint/naming-convention -- class name from module API
+  ChatOpenAI: mockChatOpenAiConstructor,
 }));
-mock.module("@langchain/google", () => ({
-  ChatGoogle: (mockChatGoogleConstructor = mock(() => {})),
+void mock.module('@langchain/google', () => ({
+  // eslint-disable-next-line @typescript-eslint/naming-convention -- class name from module API
+  ChatGoogle: mockChatGoogleConstructor,
 }));
 
 const mockConfig: AppConfig = {
   planner: {
-    provider: "openai",
-    model: "gpt-4o",
+    provider: 'openai',
+    model: 'gpt-4o',
     temperature: 0.8,
     maxTokens: 2000,
   },
   developer: {
-    provider: "google",
-    model: "gemini-pro",
+    provider: 'google',
+    model: 'gemini-pro',
     temperature: 0.2,
     maxTokens: 1500,
   },
   tester: {
-    provider: "anthropic",
-    model: "claude-3-haiku-20240307",
+    provider: 'anthropic',
+    model: 'claude-3-haiku-20240307',
     temperature: 0.1,
     maxTokens: 500,
   },
   allowedCommands: [],
 };
 
-describe("LLM Factory Functions", () => {
-  // Clear mocks before each test to ensure isolation
+describe('LLM Factory Functions', () => {
   beforeEach(() => {
-    // Manually create mock functions for the constructors
-    // These are now initialized in mock.module, so just clear them
     mockChatAnthropicConstructor.mockClear();
-    mockChatOpenAIConstructor.mockClear();
+    mockChatOpenAiConstructor.mockClear();
     mockChatGoogleConstructor.mockClear();
   });
 
-  it("createPlanner should instantiate ChatOpenAI with correct options", () => {
+  it('createPlanner should instantiate ChatOpenAI with correct options', () => {
     createPlanner(mockConfig);
-    expect(mockChatOpenAIConstructor).toHaveBeenCalledTimes(1);
-    expect(mockChatOpenAIConstructor).toHaveBeenCalledWith({
+    expect(mockChatOpenAiConstructor).toHaveBeenCalledTimes(1);
+    expect(mockChatOpenAiConstructor).toHaveBeenCalledWith({
       model: mockConfig.planner.model,
       temperature: mockConfig.planner.temperature,
       maxTokens: mockConfig.planner.maxTokens,
@@ -67,7 +61,7 @@ describe("LLM Factory Functions", () => {
     expect(mockChatGoogleConstructor).not.toHaveBeenCalled();
   });
 
-  it("createDeveloper should instantiate ChatGoogle with correct options", () => {
+  it('createDeveloper should instantiate ChatGoogle with correct options', () => {
     createDeveloper(mockConfig);
     expect(mockChatGoogleConstructor).toHaveBeenCalledTimes(1);
     expect(mockChatGoogleConstructor).toHaveBeenCalledWith({
@@ -77,10 +71,10 @@ describe("LLM Factory Functions", () => {
       streaming: true,
     });
     expect(mockChatAnthropicConstructor).not.toHaveBeenCalled();
-    expect(mockChatOpenAIConstructor).not.toHaveBeenCalled();
+    expect(mockChatOpenAiConstructor).not.toHaveBeenCalled();
   });
 
-  it("createTester should instantiate ChatAnthropic with correct options", () => {
+  it('createTester should instantiate ChatAnthropic with correct options', () => {
     createTester(mockConfig);
     expect(mockChatAnthropicConstructor).toHaveBeenCalledTimes(1);
     expect(mockChatAnthropicConstructor).toHaveBeenCalledWith({
@@ -89,7 +83,7 @@ describe("LLM Factory Functions", () => {
       maxTokens: mockConfig.tester.maxTokens,
       streaming: true,
     });
-    expect(mockChatOpenAIConstructor).not.toHaveBeenCalled();
+    expect(mockChatOpenAiConstructor).not.toHaveBeenCalled();
     expect(mockChatGoogleConstructor).not.toHaveBeenCalled();
   });
 });

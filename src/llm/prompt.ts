@@ -1,5 +1,5 @@
-import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
-import { loadAgentsFile } from "../agent";
+import {ChatPromptTemplate, MessagesPlaceholder} from '@langchain/core/prompts';
+import {loadAgentsFile} from '../agent.js';
 
 /**
  * Creates a prompt template for the coordinator agent in a multi-agent team.
@@ -14,9 +14,9 @@ export async function createPlannerPrompt() {
   const agentsFile = await loadAgentsFile();
 
   return ChatPromptTemplate.fromMessages([
-    ["system", getPlannerSystemPrompt(agentsFile)],
-    new MessagesPlaceholder("chat_history"),
-    ["human", "{input}"],
+    ['system', getPlannerSystemPrompt(agentsFile)],
+    new MessagesPlaceholder('chat_history'),
+    ['human', '{input}'],
   ]);
 }
 
@@ -33,8 +33,8 @@ export async function createDeveloperPrompt() {
   const agentsFile = await loadAgentsFile();
 
   return ChatPromptTemplate.fromMessages([
-    ["system", getDeveloperSystemPrompt(agentsFile)],
-    ["human", "{input}"],
+    ['system', getDeveloperSystemPrompt(agentsFile)],
+    ['human', '{input}'],
   ]);
 }
 
@@ -51,8 +51,8 @@ export async function createTesterPrompt() {
   const agentsFile = await loadAgentsFile();
 
   return ChatPromptTemplate.fromMessages([
-    ["system", getTesterSystemPrompt(agentsFile)],
-    ["human", "{input}"],
+    ['system', getTesterSystemPrompt(agentsFile)],
+    ['human', '{input}'],
   ]);
 }
 

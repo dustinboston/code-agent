@@ -1,5 +1,5 @@
-import chalk from "chalk";
-import type { ChatMessage } from "../types.js";
+import chalk from 'chalk';
+import type {ChatMessage} from '../types.js';
 
 /**
  * Writes a chat message to the standard output, formatted based on the message role.
@@ -7,21 +7,40 @@ import type { ChatMessage } from "../types.js";
  * @param msg - The chat message object to write.
  * @returns void
  */
-export function printChatMessage(write: (text: string) => void, msg: ChatMessage) {
-  if (msg.role === "system") {
-    write(chalk.gray(`  ${msg.content}\n`));
-  } else if (msg.role === "user") {
-    write(chalk.bold.cyan("You") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
-    write(`  ${msg.content}\n\n`);
-  } else if (msg.role === "developer") {
-    write(chalk.bold.blue("Developer") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
-    write(`  ${msg.content}\n\n`);
-  } else if (msg.role === "tester") {
-    write(chalk.bold.magenta("Tester") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
-    write(`  ${msg.content}\n\n`);
-  } else {
-    write(chalk.bold.green("Planner") + chalk.dim(` [${new Date(msg.timestamp).toLocaleTimeString()}]`) + "\n");
-    write(`  ${msg.content}\n`);
-    write("\n");
+export function printChatMessage(write: (text: string) => void, message: ChatMessage) {
+  switch (message.role) {
+    case 'system': {
+      write(chalk.gray(`  ${message.content}\n`));
+
+      break;
+    }
+
+    case 'user': {
+      write(chalk.bold.cyan('You') + chalk.dim(` [${new Date(message.timestamp).toLocaleTimeString()}]`) + '\n');
+      write(`  ${message.content}\n\n`);
+
+      break;
+    }
+
+    case 'developer': {
+      write(chalk.bold.blue('Developer') + chalk.dim(` [${new Date(message.timestamp).toLocaleTimeString()}]`) + '\n');
+      write(`  ${message.content}\n\n`);
+
+      break;
+    }
+
+    case 'tester': {
+      write(chalk.bold.magenta('Tester') + chalk.dim(` [${new Date(message.timestamp).toLocaleTimeString()}]`) + '\n');
+      write(`  ${message.content}\n\n`);
+
+      break;
+    }
+
+    case 'assistant': {
+      write(chalk.bold.green('Planner') + chalk.dim(` [${new Date(message.timestamp).toLocaleTimeString()}]`) + '\n');
+      write(`  ${message.content}\n\n`);
+
+      break;
+    }
   }
 }

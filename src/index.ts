@@ -8,12 +8,12 @@
  * with Commander and delegates argument parsing to the framework.
  * The default action (no sub-command) launches team mode.
  */
-import packageJson from "../package.json" with { type: "json" };
-import { loadConfig, validateConfig } from "./config.js";
-import { startApp } from "./tui/app.js";
-import { Command } from "commander";
+import {Command} from 'commander';
+import packageJson from '../package.json' with {type: 'json'};
+import {loadConfig, validateConfig} from './config.js';
+import {startApp} from './tui/app.js';
 
-const version = packageJson.version;
+const {version} = packageJson;
 
 console.log(`Code Agent ${version}`);
 
@@ -26,13 +26,13 @@ console.log(`Code Agent ${version}`);
 const program = new Command();
 
 program
-  .name("code-agent")
-  .description("AI code editing team")
+  .name('code-agent')
+  .description('AI code editing team')
   .version(version)
   .action(async () => {
     const config = loadConfig();
     validateConfig(config);
-    startApp(config);
+    await startApp(config);
   });
 
 program.parse();

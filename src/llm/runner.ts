@@ -1,277 +1,348 @@
-import { randomUUID } from "crypto";
-import chalk from "chalk";
-import { AIMessage, ToolMessage } from "@langchain/core/messages";
-import type { AIMessageChunk, BaseMessage } from "@langchain/core/messages";
-import type { ChatAnthropic } from "@langchain/anthropic";
-import type { ChatOpenAI } from "@langchain/openai";
-import type { ChatGoogle } from "@langchain/google";
-import type { Runnable } from "@langchain/core/runnables";
-import { z } from "zod";
-import { tool } from "@langchain/core/tools";
-import { readFileTool, listDirectoryTool, writeFileTool, deletePathTool } from "../tools/filesystem.js";
-import { runCommandTool } from "../tools/shell.js";
-import { createDeveloperPrompt, createTesterPrompt } from "./prompt.js";
-import type { DynamicStructuredTool } from "@langchain/core/tools";
+import {randomUUID} from 'node:crypto';
+import chalk from 'chalk';
+import {AIMessage, ToolMessage, type AIMessageChunk, type BaseMessage} from '@langchain/core/messages';
+import type {ToolCall} from '@langchain/core/messages/tool';
+import type {ChatAnthropic} from '@langchain/anthropic';
+import type {ChatOpenAI} from '@langchain/openai';
+import type {ChatGoogle} from '@langchain/google';
+import type {Runnable} from '@langchain/core/runnables';
+import {z} from 'zod';
+import {tool, type DynamicStructuredTool} from '@langchain/core/tools';
+import {readFileTool, listDirectoryTool, writeFileTool, deletePathTool} from '../tools/filesystem.js';
+import {runCommandTool} from '../tools/shell.js';
+import {createDeveloperPrompt, createTesterPrompt} from './prompt.js';
 
 type AgentModel = ChatAnthropic | ChatOpenAI | ChatGoogle;
 
 // ─── Agent loop runner ─────────────────────────────────────────────────────────
 
-interface RunAgentLoopCallbacks {
+type RunAgentLoopCallbacks = {
   onChunk?: (chunk: AIMessageChunk, iterationText: string) => void;
   onTurnComplete?: (
     accChunk: AIMessageChunk,
     iterationText: string,
     invokeMessages: BaseMessage[],
   ) => Promise<BaseMessage[]>;
-  onToolCall?: (toolCall: any) => void;
+  onToolCall?: (toolCall: ToolCall) => void;
   onActivity?: (line: string) => void;
-  onStatus?: (msg: string) => void;
+  onStatus?: (message: string) => void;
   requestApproval?: (command: string) => Promise<boolean>;
   onAgentMessage?: (agentName: string, message: string) => Promise<void>;
   agentName: string;
   agentTools: DynamicStructuredTool[];
+};
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error('INTERRUPTED: aborted');
+}
+
+function buildAiMessage(chunk: AIMessageChunk): AIMessage {
+  return new AIMessage({
+    content: chunk.content,
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+    tool_calls: chunk.tool_calls,
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+    additional_kwargs: chunk.additional_kwargs,
+    id: chunk.id,
+  });
+}
+
+function extractText(content: AIMessageChunk['content']): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map((p) => (typeof p === 'string' ? p : 'text' in p ? p.text : '')).join('');
+  }
+
+  return '';
+}
+
+function announceToolChunks(
+  chunk: AIMessageChunk,
+  announcedTools: Set<string>,
+  agentName: string,
+  onActivity: (line: string) => void,
+): void {
+  if (!chunk.tool_call_chunks) return;
+  for (const tcc of chunk.tool_call_chunks) {
+    if (!tcc.name) continue;
+    const key = tcc.index?.toString() ?? tcc.id ?? '';
+    if (key && !announcedTools.has(key)) {
+      announcedTools.add(key);
+      onActivity(`${agentName} preparing ${tcc.name}...`);
+    }
+  }
+}
+
+function mergeChunks(existing: AIMessageChunk, incoming: AIMessageChunk): AIMessageChunk {
+  // eslint-disable-next-line unicorn/prefer-spread -- AIMessageChunk.concat is not Array#concat
+  return existing.concat(incoming);
+}
+
+type StreamResult = {
+  accChunk: AIMessageChunk | undefined;
+  iterationText: string;
+};
+
+async function streamOneIteration(
+  agent: Runnable<BaseMessage[], AIMessageChunk>,
+  messages: BaseMessage[],
+  callbacks: RunAgentLoopCallbacks,
+  signal?: AbortSignal,
+): Promise<StreamResult> {
+  const {onChunk, onActivity, agentName} = callbacks;
+  let accChunk: AIMessageChunk | undefined;
+  let iterationText = '';
+  const announcedTools = new Set<string>();
+
+  const stream = await agent.stream(messages, {signal});
+  for await (const chunk of stream) {
+    if (signal?.aborted) {
+      throw toError(signal.reason);
+    }
+
+    accChunk = accChunk ? mergeChunks(accChunk, chunk) : chunk;
+
+    if (onActivity) {
+      announceToolChunks(chunk, announcedTools, agentName, onActivity);
+    }
+
+    const text = extractText(chunk.content);
+    iterationText += text;
+    onChunk?.(chunk, iterationText);
+  }
+
+  return {accChunk, iterationText};
+}
+
+function buildToolMessage(content: string, toolCall: ToolCall): ToolMessage {
+  return new ToolMessage({
+    content,
+    name: toolCall.name,
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+    tool_call_id: toolCall.id ?? randomUUID(),
+  });
+}
+
+async function executeSingleToolCall(toolCall: ToolCall, callbacks: RunAgentLoopCallbacks): Promise<ToolMessage> {
+  const {onActivity, requestApproval, agentName, agentTools} = callbacks;
+
+  if (onActivity) {
+    logToolCallActivity(toolCall, agentName, onActivity);
+  }
+
+  if (toolCall.name === 'run_command' && requestApproval) {
+    const command =
+      typeof toolCall.args === 'object' && toolCall.args !== null && 'command' in toolCall.args
+        ? String(toolCall.args.command)
+        : '';
+    const approved = await requestApproval(command);
+    if (!approved) {
+      const deniedMessage = 'Error: User denied execution of this command.';
+      if (onActivity) onActivity(chalk.red(`    ⚠ ${deniedMessage}`));
+      return buildToolMessage(deniedMessage, toolCall);
+    }
+  }
+
+  const toolFn = agentTools.find((t) => t.name === toolCall.name);
+  if (!toolFn) {
+    return buildToolMessage(`Unknown tool: ${toolCall.name}`, toolCall);
+  }
+
+  try {
+    const result: unknown = await toolFn.invoke(toolCall);
+    if (result instanceof ToolMessage) {
+      return result;
+    }
+
+    return buildToolMessage(String(result), toolCall);
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message.startsWith('INTERRUPTED:')) {
+      throw error;
+    }
+
+    const errorMessage = `Tool error: ${error instanceof Error ? error.message : String(error)}`;
+    if (onActivity) onActivity(chalk.red(`    ⚠ ${errorMessage.slice(0, 500)}`));
+    return buildToolMessage(errorMessage, toolCall);
+  }
+}
+
+function logToolCallActivity(toolCall: ToolCall, agentName: string, onActivity: (line: string) => void): void {
+  const argsSummary = Object.entries(toolCall.args ?? {})
+    .filter(([k]) => !(toolCall.name === 'write_file' && k === 'content'))
+    .map(([k, v]) => {
+      const s = typeof v === 'string' ? v : JSON.stringify(v);
+      return `${k}: ${s.length > 60 ? s.slice(0, 57) + '...' : s}`;
+    })
+    .join(', ');
+  onActivity(`${agentName}: ${toolCall.name}(${argsSummary})`);
+}
+
+function logToolError(toolMessage: ToolMessage, onActivity?: (line: string) => void): void {
+  if (
+    onActivity &&
+    typeof toolMessage.content === 'string' &&
+    (toolMessage.content.startsWith('Error ') || toolMessage.content.startsWith('Tool error:'))
+  ) {
+    onActivity(chalk.red(`    ⚠ ${toolMessage.content.slice(0, 150)}`));
+  }
+}
+
+async function processToolCalls(toolCalls: ToolCall[], callbacks: RunAgentLoopCallbacks): Promise<ToolMessage[]> {
+  const {onToolCall, onStatus, agentName} = callbacks;
+
+  onStatus?.(`${agentName} using tools (${toolCalls.map((tc) => tc.name).join(', ')})...`);
+
+  for (const tc of toolCalls) {
+    onToolCall?.(tc);
+  }
+
+  const toolMessages = await Promise.all(
+    toolCalls.map(async (toolCall) => {
+      const toolMessage = await executeSingleToolCall(toolCall, callbacks);
+      logToolError(toolMessage, callbacks.onActivity);
+      return toolMessage;
+    }),
+  );
+
+  return toolMessages;
+}
+
+function handleStreamInterrupt(
+  accChunk: AIMessageChunk | undefined,
+  messages: BaseMessage[],
+  signal?: AbortSignal,
+): BaseMessage[] {
+  if (accChunk) {
+    return [...messages, buildAiMessage(accChunk)];
+  }
+
+  return messages;
+}
+
+type InterruptErrorOptions = {
+  error: unknown;
+  accChunk: AIMessageChunk | undefined;
+  messages: BaseMessage[];
+  onTurnComplete: RunAgentLoopCallbacks['onTurnComplete'];
+  signal?: AbortSignal;
+};
+
+function handleInterruptError(options: InterruptErrorOptions): never {
+  const {error, accChunk, messages, onTurnComplete, signal} = options;
+  if (error instanceof Error && (error.name === 'AbortError' || error.message.startsWith('INTERRUPTED:'))) {
+    const updatedMessages = handleStreamInterrupt(accChunk, messages, signal);
+    void onTurnComplete?.(accChunk!, '', updatedMessages);
+
+    const interruptError =
+      signal?.reason instanceof Error && signal.reason.message.startsWith('INTERRUPTED:')
+        ? signal.reason
+        : new Error('INTERRUPTED: aborted');
+    throw interruptError;
+  }
+
+  throw error;
+}
+
+async function runAgentIteration(
+  agent: Runnable<BaseMessage[], AIMessageChunk>,
+  currentMessages: BaseMessage[],
+  callbacks: RunAgentLoopCallbacks,
+  signal?: AbortSignal,
+): Promise<BaseMessage[]> {
+  if (signal?.aborted) {
+    throw toError(signal.reason);
+  }
+
+  const {onTurnComplete, onAgentMessage, agentName} = callbacks;
+
+  let streamResult: StreamResult;
+  try {
+    streamResult = await streamOneIteration(agent, currentMessages, callbacks, signal);
+  } catch (error: unknown) {
+    handleInterruptError({error, accChunk: undefined, messages: currentMessages, onTurnComplete, signal});
+    throw error; // Unreachable — handleInterruptError always throws
+  }
+
+  const {accChunk, iterationText} = streamResult;
+  if (!accChunk) return currentMessages;
+
+  if (onAgentMessage && iterationText.trim()) {
+    await onAgentMessage(agentName, iterationText.trim());
+  }
+
+  let messages = [...currentMessages, buildAiMessage(accChunk)];
+
+  if (onTurnComplete) {
+    messages = await onTurnComplete(accChunk, iterationText, messages);
+  }
+
+  const toolCalls = accChunk.tool_calls ?? [];
+  if (toolCalls.length === 0) return messages;
+
+  const toolMessages = await processToolCalls(toolCalls, callbacks);
+  return runAgentIteration(agent, [...messages, ...toolMessages], callbacks, signal);
 }
 
 export async function runAgentLoop(
-  agent: Runnable<any, any>,
+  agent: Runnable<BaseMessage[], AIMessageChunk>,
   invokeMessages: BaseMessage[],
   callbacks: RunAgentLoopCallbacks,
   signal?: AbortSignal,
 ): Promise<BaseMessage[]> {
-  const {
-    onChunk,
-    onTurnComplete,
-    onToolCall,
-    onActivity,
-    onStatus,
-    requestApproval,
-    onAgentMessage,
-    agentName,
-    agentTools,
-  } = callbacks;
-
-  let currentInvokeMessages = [...invokeMessages];
-  let fullText = "";
-
-  while (true) {
-    if (signal?.aborted) {
-      throw signal.reason;
-    }
-
-    let accChunk: AIMessageChunk | null = null;
-    let iterationText = "";
-    let announcedTools = new Set<string>();
-
-    try {
-      const stream = await agent.stream(currentInvokeMessages, { signal });
-      for await (const chunk of stream) {
-        if (signal?.aborted) {
-          throw signal.reason instanceof Error ? signal.reason : new Error("INTERRUPTED: aborted");
-        }
-        const c = chunk as AIMessageChunk;
-        accChunk = accChunk ? (accChunk.concat(c) as AIMessageChunk) : c;
-
-        if (c.tool_call_chunks && onActivity) {
-          for (const tcc of c.tool_call_chunks) {
-            if (tcc.name && !announcedTools.has(tcc.index?.toString() ?? tcc.id ?? "")) {
-              const key = tcc.index?.toString() ?? tcc.id ?? "";
-              if (key) announcedTools.add(key);
-              onActivity(`${agentName} preparing ${tcc.name}...`);
-            }
-          }
-        }
-
-        const text =
-          typeof c.content === "string"
-            ? c.content
-            : Array.isArray(c.content)
-              ? c.content.map((p) => (typeof p === "string" ? p : "text" in p ? p.text : "")).join("")
-              : "";
-        iterationText += text;
-        fullText += text;
-
-        onChunk?.(c, iterationText);
-      }
-    } catch (e: any) {
-      if (e.name === "AbortError" || (e instanceof Error && e.message.startsWith("INTERRUPTED:"))) {
-        if (accChunk) {
-          currentInvokeMessages.push(
-            new AIMessage({
-              content: accChunk.content,
-              tool_calls: accChunk.tool_calls,
-              additional_kwargs: accChunk.additional_kwargs,
-              id: accChunk.id,
-            }),
-          );
-          if (onTurnComplete) {
-            currentInvokeMessages = await onTurnComplete(accChunk, iterationText, currentInvokeMessages);
-          }
-        }
-        const interruptErr =
-          signal?.reason instanceof Error && signal.reason.message.startsWith("INTERRUPTED:")
-            ? signal.reason
-            : new Error("INTERRUPTED: aborted");
-        throw interruptErr;
-      }
-      throw e;
-    }
-
-    if (!accChunk) break;
-
-    if (onAgentMessage && iterationText.trim()) {
-      await onAgentMessage(agentName, iterationText.trim());
-    }
-
-    currentInvokeMessages.push(
-      new AIMessage({
-        content: accChunk.content,
-        tool_calls: accChunk.tool_calls,
-        additional_kwargs: accChunk.additional_kwargs,
-        id: accChunk.id,
-      }),
-    );
-
-    if (onTurnComplete) {
-      currentInvokeMessages = await onTurnComplete(accChunk, iterationText, currentInvokeMessages);
-    }
-
-    const toolCalls = accChunk.tool_calls ?? [];
-    if (toolCalls.length === 0) break;
-
-    onStatus?.(`${agentName} using tools (${toolCalls.map((tc) => tc.name).join(", ")})...`);
-
-    for (const tc of toolCalls) {
-      onToolCall?.(tc);
-    }
-
-    const toolMessages = await Promise.all(
-      toolCalls.map(async (toolCall) => {
-        if (onActivity) {
-          const argsSummary = Object.entries(toolCall.args ?? {})
-            .filter(([k]) => !(toolCall.name === "write_file" && k === "content"))
-            .map(([k, v]) => {
-              const s = typeof v === "string" ? v : JSON.stringify(v);
-              return `${k}: ${s.length > 60 ? s.slice(0, 57) + "..." : s}`;
-            })
-            .join(", ");
-          onActivity(`${agentName}: ${toolCall.name}(${argsSummary})`);
-        }
-        const toolFn = agentTools.find((t) => t.name === toolCall.name);
-        let toolMsg: ToolMessage;
-
-        if (toolCall.name === "run_command" && requestApproval) {
-          const approved = await requestApproval((toolCall.args as any).command || "");
-          if (!approved) {
-            const deniedMsg = "Error: User denied execution of this command.";
-            if (onActivity) onActivity(chalk.red(`    ⚠ ${deniedMsg}`));
-            return new ToolMessage({
-              content: deniedMsg,
-              tool_call_id: toolCall.id ?? randomUUID(),
-              name: toolCall.name,
-            });
-          }
-        }
-
-        if (!toolFn) {
-          toolMsg = new ToolMessage({
-            content: `Unknown tool: ${toolCall.name}`,
-            tool_call_id: toolCall.id ?? randomUUID(),
-            name: toolCall.name,
-          });
-        } else {
-          try {
-            toolMsg = (await toolFn.invoke(toolCall)) as ToolMessage;
-          } catch (e: any) {
-            if (e instanceof Error && e.message.startsWith("INTERRUPTED:")) {
-              throw e;
-            }
-            const errorMsg = `Tool error: ${e instanceof Error ? e.message : String(e)}`;
-            if (onActivity) onActivity(chalk.red(`    ⚠ ${errorMsg.slice(0, 500)}`));
-            toolMsg = new ToolMessage({
-              content: errorMsg,
-              tool_call_id: toolCall.id ?? randomUUID(),
-              name: toolCall.name,
-            });
-          }
-        }
-
-        if (
-          typeof toolMsg.content === "string" &&
-          (toolMsg.content.startsWith("Error ") || toolMsg.content.startsWith("Tool error:"))
-        ) {
-          if (onActivity) onActivity(chalk.red(`    ⚠ ${toolMsg.content.slice(0, 150)}`));
-        }
-
-        return toolMsg;
-      }),
-    );
-    currentInvokeMessages.push(...toolMessages);
-  }
-  return currentInvokeMessages;
+  return runAgentIteration(agent, [...invokeMessages], callbacks, signal);
 }
 
 // ─── Sub-agent runner ──────────────────────────────────────────────────────────
 
+type SubAgentOptions = {
+  agent: AgentModel;
+  agentTools: DynamicStructuredTool[];
+  promptFn: () => ReturnType<typeof createDeveloperPrompt>;
+  message: string;
+  onStatus: (message: string) => void;
+  agentName: string;
+  onActivity?: (line: string) => void;
+  requestApproval?: (command: string) => Promise<boolean>;
+  onAgentMessage?: (agentName: string, message: string) => Promise<void>;
+  signal?: AbortSignal;
+};
+
 /**
  * Runs a single sub-agent (developer or tester) in an agentic tool-use loop.
- *
- * Each iteration streams one LLM response. If the response contains tool
- * calls, every tool is invoked and its result is appended to the message
- * history before the next iteration begins. The loop exits when the model
- * produces a response with no tool calls — i.e. it has finished its task and
- * is reporting back in plain text.
- *
- * @param agent - The LLM instance that powers this sub-agent.
- * @param agentTools - Array of LangChain tools the agent is allowed to call.
- * @param promptFn - Factory that returns the agent's system prompt template.
- * @param message - The task description from the planner.
- * @param onStatus - Callback invoked to update the TUI status bar.
- * @param agentName - Display name used in status and activity messages.
- * @param onActivity - Optional callback for detailed activity log lines.
- * @param requestApproval - Optional callback to request user approval for commands.
- * @param onAgentMessage - Optional callback for when the agent produces a message.
- * @param signal - Optional AbortSignal to cancel the operation.
- * @returns The full concatenated text the agent produced across all iterations.
  */
-export async function runSubAgent(
-  agent: AgentModel,
-  agentTools: DynamicStructuredTool[],
-  promptFn: () => ReturnType<typeof createDeveloperPrompt>,
-  message: string,
-  onStatus: (msg: string) => void,
-  agentName: string,
-  onActivity?: (line: string) => void,
-  requestApproval?: (command: string) => Promise<boolean>,
-  onAgentMessage?: (agentName: string, message: string) => Promise<void>,
-  signal?: AbortSignal,
-): Promise<string> {
+export async function runSubAgent(options: SubAgentOptions): Promise<string> {
+  const {
+    agent,
+    agentTools,
+    promptFn,
+    message,
+    onStatus,
+    agentName,
+    onActivity,
+    requestApproval,
+    onAgentMessage,
+    signal,
+  } = options;
   const agentWithTools = agent.bindTools(agentTools);
   const prompt = await promptFn();
-  const promptMessages = await prompt.formatMessages({ input: message });
-  let fullText = "";
-  let lastStatus = "";
+  const promptMessages = await prompt.formatMessages({input: message});
+  let fullText = '';
+  let lastStatus = '';
 
-  const wrappedOnStatus = (msg: string) => {
-    lastStatus = msg;
-    onStatus(msg);
+  const wrappedOnStatus = (statusMessage: string) => {
+    lastStatus = statusMessage;
+    onStatus(statusMessage);
   };
 
   try {
-    const updatedInvokeMessages = await runAgentLoop(
+    await runAgentLoop(
       agentWithTools,
       promptMessages,
       {
-        onChunk: (c, iterText) => {
-          const text =
-            typeof c.content === "string"
-              ? c.content
-              : Array.isArray(c.content)
-                ? c.content.map((p) => (typeof p === "string" ? p : "text" in p ? p.text : "")).join("")
-                : "";
-          fullText += text;
+        onChunk(c) {
+          fullText += extractText(c.content);
         },
-        onTurnComplete: async (accChunk, iterationText, currentInvokeMessages) => {
+        async onTurnComplete(accChunk, iterationText, currentInvokeMessages) {
           return currentInvokeMessages;
         },
         onActivity,
@@ -283,13 +354,14 @@ export async function runSubAgent(
       },
       signal,
     );
-  } catch (err: any) {
-    if (err instanceof Error && err.message.startsWith("INTERRUPTED:")) {
-      const statusStr = lastStatus ? ` Last status: ${lastStatus}` : "";
-      const partial = fullText.trim() ? ` Output: ${fullText.trim()}` : "";
-      err.message += `\n[System Note: Interrupted while ${agentName} was working.${statusStr}${partial}]`;
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message.startsWith('INTERRUPTED:')) {
+      const statusString = lastStatus ? ` Last status: ${lastStatus}` : '';
+      const partial = fullText.trim() ? ` Output: ${fullText.trim()}` : '';
+      error.message += `\n[System Note: Interrupted while ${agentName} was working.${statusString}${partial}]`;
     }
-    throw err;
+
+    throw error;
   }
 
   return fullText;
@@ -297,89 +369,73 @@ export async function runSubAgent(
 
 // ─── send_message tool factory ────────────────────────────────────────────────
 
+type SendMessageToolOptions = {
+  developer: AgentModel;
+  tester: AgentModel;
+  onStatus: (message: string) => void;
+  onActivity?: (line: string) => void;
+  requestApproval?: (command: string) => Promise<boolean>;
+  onAgentMessage?: (agentName: string, message: string) => Promise<void>;
+  signal?: AbortSignal;
+};
+
 /**
  * Creates the `send_message` LangChain tool that the planner uses to delegate
  * work to sub-agents.
- *
- * When the planner calls `send_message({ id: "developer", message: "..." })`,
- * this tool spins up the corresponding sub-agent's agentic loop via
- * {@link runSubAgent} and returns the result as a JSON string. The planner
- * then decides whether to call the tester, ask a follow-up, or report back
- * to the user.
- *
- * Both sub-agents share the same tool set: `read_file`, `list_directory`,
- * `write_file`, `delete_path`, and `run_command`.
- *
- * @param developer - LLM instance for the developer sub-agent.
- * @param tester - LLM instance for the tester sub-agent.
- * @param onStatus - Callback invoked to update the TUI status bar.
- * @param onActivity - Optional callback for detailed activity log lines.
- * @param requestApproval - Optional callback to request user approval for commands.
- * @param onAgentMessage - Optional callback for when the agent produces a message.
- * @param signal - Optional AbortSignal to cancel the operation.
- * @returns A LangChain `DynamicStructuredTool` that the planner can call.
  */
-export function createSendMessageTool(
-  developer: AgentModel,
-  tester: AgentModel,
-  onStatus: (msg: string) => void,
-  onActivity?: (line: string) => void,
-  requestApproval?: (command: string) => Promise<boolean>,
-  onAgentMessage?: (agentName: string, message: string) => Promise<void>,
-  signal?: AbortSignal,
-) {
-  const developerTools = [readFileTool, listDirectoryTool, writeFileTool, deletePathTool, runCommandTool];
-  const testerTools = [readFileTool, listDirectoryTool, writeFileTool, deletePathTool, runCommandTool];
+export function createSendMessageTool(options: SendMessageToolOptions) {
+  const {developer, tester, onStatus, onActivity, requestApproval, onAgentMessage, signal} = options;
+  const subAgentTools = [readFileTool, listDirectoryTool, writeFileTool, deletePathTool, runCommandTool];
 
   return tool(
-    async ({ id, message }: { id: string; message: string }) => {
-      if (id === "developer") {
-        onStatus("Developer is working...");
-        const result = await runSubAgent(
-          developer,
-          developerTools,
-          createDeveloperPrompt,
+    async ({id, message}: {id: string; message: string}) => {
+      if (id === 'developer') {
+        onStatus('Developer is working...');
+        const result = await runSubAgent({
+          agent: developer,
+          agentTools: subAgentTools,
+          promptFn: createDeveloperPrompt,
           message,
           onStatus,
-          "Developer",
+          agentName: 'Developer',
           onActivity,
           requestApproval,
           onAgentMessage,
           signal,
-        );
-        return JSON.stringify({ id: "coordinator", status: "success", message: result });
+        });
+        return JSON.stringify({id: 'coordinator', status: 'success', message: result});
       }
 
-      if (id === "tester") {
-        onStatus("Tester is working...");
-        const result = await runSubAgent(
-          tester,
-          testerTools,
-          createTesterPrompt,
+      if (id === 'tester') {
+        onStatus('Tester is working...');
+        const result = await runSubAgent({
+          agent: tester,
+          agentTools: subAgentTools,
+          promptFn: createTesterPrompt,
           message,
           onStatus,
-          "Tester",
+          agentName: 'Tester',
           onActivity,
           requestApproval,
           onAgentMessage,
           signal,
-        );
-        return JSON.stringify({ id: "coordinator", status: "success", message: result });
+        });
+        return JSON.stringify({id: 'coordinator', status: 'success', message: result});
       }
 
       return JSON.stringify({
-        id: "coordinator",
-        status: "failure",
+        id: 'coordinator',
+        status: 'failure',
         message: `Unknown agent: ${id}. Valid agents: developer, tester.`,
       });
     },
     {
-      name: "send_message",
+      name: 'send_message',
       description:
         "Delegate a task to a sub-agent. Use 'developer' to implement code changes, 'tester' to write and run tests.",
       schema: z.object({
-        id: z.enum(["developer", "tester"]).describe("The sub-agent to message"),
-        message: z.string().describe("A self-contained task description with all context the agent needs"),
+        id: z.enum(['developer', 'tester']).describe('The sub-agent to message'),
+        message: z.string().describe('A self-contained task description with all context the agent needs'),
       }),
     },
   );

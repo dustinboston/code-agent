@@ -8,10 +8,10 @@
  * chains or agentic tool-use loops. Streaming is always enabled so the TUI
  * can render tokens incrementally as they arrive.
  */
-import { ChatAnthropic } from "@langchain/anthropic";
-import { ChatOpenAI } from "@langchain/openai";
-import { ChatGoogle } from "@langchain/google";
-import type { AppConfig, Provider } from "../types.js";
+import {ChatAnthropic} from '@langchain/anthropic';
+import {ChatOpenAI} from '@langchain/openai';
+import {ChatGoogle} from '@langchain/google';
+import type {AppConfig, Provider} from '../types.js';
 
 /**
  * Internal helper that instantiates the correct LangChain chat model class
@@ -26,10 +26,10 @@ import type { AppConfig, Provider } from "../types.js";
  *   instance.
  */
 function createInstance(provider: Provider | undefined, model: string, temperature: number, maxTokens?: number) {
-  const opts = { model, temperature, maxTokens, streaming: true } as const;
-  if (provider === "openai") return new ChatOpenAI(opts);
-  if (provider === "google") return new ChatGoogle(opts);
-  return new ChatAnthropic(opts);
+  const options = {model, temperature, maxTokens, streaming: true} as const;
+  if (provider === 'openai') return new ChatOpenAI(options);
+  if (provider === 'google') return new ChatGoogle(options);
+  return new ChatAnthropic(options);
 }
 
 /**
@@ -43,7 +43,12 @@ function createInstance(provider: Provider | undefined, model: string, temperatu
  * @returns A configured LLM instance using the `config.planner` settings.
  */
 export function createPlanner(config: AppConfig) {
-  return createInstance(config.planner.provider, config.planner.model, config.planner.temperature, config.planner.maxTokens);
+  return createInstance(
+    config.planner.provider,
+    config.planner.model,
+    config.planner.temperature,
+    config.planner.maxTokens,
+  );
 }
 
 /**
@@ -56,7 +61,12 @@ export function createPlanner(config: AppConfig) {
  * @returns A configured LLM instance using the `config.developer` settings.
  */
 export function createDeveloper(config: AppConfig) {
-  return createInstance(config.developer.provider, config.developer.model, config.developer.temperature, config.developer.maxTokens);
+  return createInstance(
+    config.developer.provider,
+    config.developer.model,
+    config.developer.temperature,
+    config.developer.maxTokens,
+  );
 }
 
 /**
@@ -70,5 +80,10 @@ export function createDeveloper(config: AppConfig) {
  * @returns A configured LLM instance using the `config.tester` settings.
  */
 export function createTester(config: AppConfig) {
-  return createInstance(config.tester.provider, config.tester.model, config.tester.temperature, config.tester.maxTokens);
+  return createInstance(
+    config.tester.provider,
+    config.tester.model,
+    config.tester.temperature,
+    config.tester.maxTokens,
+  );
 }

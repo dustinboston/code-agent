@@ -1,27 +1,16 @@
-import { printChatMessage } from './format';
-import { ChatMessage } from '../types';
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
-import { stdout } from 'process';
-import chalk from 'chalk';
-import { randomUUID } from 'crypto';
+import {randomUUID} from 'node:crypto';
+import {describe, it, expect, beforeEach} from 'bun:test';
+import {type ChatMessage} from '../types.js';
+import {printChatMessage} from './format.js';
 
 describe('printChatMessage', () => {
-  let originalStdoutWrite: (chunk: any, encoding?: BufferEncoding, cb?: (err?: Error | null) => void) => boolean;
   let capturedOutput: string[] = [];
+  const captureWrite = (text: string): void => {
+    capturedOutput.push(text);
+  };
 
   beforeEach(() => {
-    // mock.restoreAll(); // Removed as it's not a function in Bun's mock API
     capturedOutput = [];
-    originalStdoutWrite = stdout.write;
-    (stdout as any).write = mock((chunk: any, cb?: (err?: Error | null) => void) => {
-      capturedOutput.push(chunk.toString());
-      if (cb) cb(null);
-      return true;
-    });
-  });
-
-  afterEach(() => {
-    (stdout as any).write = originalStdoutWrite;
   });
 
   it('should print developer messages as plain text', () => {
@@ -32,7 +21,7 @@ describe('printChatMessage', () => {
       timestamp: new Date().toISOString(),
     };
 
-    printChatMessage((text) => stdout.write(text), message);
+    printChatMessage(captureWrite, message);
 
     const output = capturedOutput.join('');
     expect(output).toContain('This is a **bold** word.');
@@ -46,7 +35,7 @@ describe('printChatMessage', () => {
       timestamp: new Date().toISOString(),
     };
 
-    printChatMessage((text) => stdout.write(text), message);
+    printChatMessage(captureWrite, message);
 
     const output = capturedOutput.join('');
     expect(output).toContain('This is a **bold** word.');
@@ -60,7 +49,7 @@ describe('printChatMessage', () => {
       timestamp: new Date().toISOString(),
     };
 
-    printChatMessage((text) => stdout.write(text), message);
+    printChatMessage(captureWrite, message);
 
     const output = capturedOutput.join('');
     expect(output).toContain('This is a **bold** word.');
@@ -74,7 +63,7 @@ describe('printChatMessage', () => {
       timestamp: new Date().toISOString(),
     };
 
-    printChatMessage((text) => stdout.write(text), message);
+    printChatMessage(captureWrite, message);
 
     const output = capturedOutput.join('');
     expect(output).toContain('**bold**');
@@ -88,7 +77,7 @@ describe('printChatMessage', () => {
       timestamp: new Date().toISOString(),
     };
 
-    printChatMessage((text) => stdout.write(text), message);
+    printChatMessage(captureWrite, message);
 
     const output = capturedOutput.join('');
     expect(output).toContain('**bold**');

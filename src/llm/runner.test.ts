@@ -1,82 +1,138 @@
-import { AIMessage, ToolMessage, HumanMessage, AIMessageChunk } from "@langchain/core/messages";
-import { z } from "zod";
-import * as runner from "./runner";
-import { describe, it, expect, beforeEach, mock, spyOn, afterEach, Mock } from "bun:test";
-import { BaseMessage } from "@langchain/core/messages";
-import { Runnable } from "@langchain/core/runnables";
+import {AIMessage, ToolMessage, HumanMessage, AIMessageChunk, type BaseMessage} from '@langchain/core/messages';
+import {z} from 'zod';
+import {describe, it, expect, beforeEach, mock, spyOn, afterEach, type Mock} from 'bun:test';
+import * as runner from './runner.js';
 
-// Mock external dependencies using mock.module
-let mockRandomUUID: Mock<any>;
-let mockCreateDeveloperPrompt: Mock<any>;
-let mockCreateTesterPrompt: Mock<any>;
+// ─── Module-level mocks ──────────────────────────────────────────────────────
 
-mock.module("crypto", () => ({
-  randomUUID: (mockRandomUUID = mock(() => "00000000-0000-0000-0000-000000000000")), // Provide a valid UUID format
-}));
+const mockRandomUuid = mock(() => '00000000-0000-0000-0000-000000000000');
 
-// Consistent mock prompt object for runSubAgent tests
 const mockPromptObject = {
-  formatMessages: mock(() => Promise.resolve([new HumanMessage("Developer prompt")])),
+  formatMessages: mock(async (_args: Record<string, string>) => [new HumanMessage('Developer prompt')]),
 };
 
-mock.module("./prompt.js", () => ({
-  createDeveloperPrompt: (mockCreateDeveloperPrompt = mock(() => mockPromptObject)),
-  createTesterPrompt: (mockCreateTesterPrompt = mock(() => mockPromptObject)),
+const mockCreateDeveloperPrompt = mock(() => mockPromptObject);
+const mockCreateTesterPrompt = mock(() => mockPromptObject);
+
+void mock.module('crypto', () => ({
+  // eslint-disable-next-line @typescript-eslint/naming-convention -- Node.js API name
+  randomUUID: mockRandomUuid,
 }));
 
-describe("runner", () => {
-  let mockAgent: any;
-  let mockCallbacks: any;
-  let mockTools: any[];
+void mock.module('./prompt.js', () => ({
+  createDeveloperPrompt: mockCreateDeveloperPrompt,
+  createTesterPrompt: mockCreateTesterPrompt,
+}));
 
-  // Spy for internal function runAgentLoop
-  let runAgentLoopSpy: Mock<any>;
+// ─── Typed mock helpers ──────────────────────────────────────────────────────
+
+type AgentLoopCallbacks = Parameters<typeof runner.runAgentLoop>[2];
+
+type StreamFn = (messages: BaseMessage[], options?: Record<string, unknown>) => AsyncIterable<AIMessageChunk>;
+
+type MockAgentShape = {
+  stream: Mock<StreamFn>;
+  bindTools: Mock<(tools: unknown[]) => MockAgentShape>;
+};
+
+type MockToolShape = {
+  name: string;
+  description: string;
+  schema: z.ZodObject<Record<string, z.ZodType>>;
+  invoke: Mock<(toolCall: Record<string, unknown>) => ToolMessage>;
+};
+
+async function expectToThrow(promise: Promise<unknown>, substring: string): Promise<void> {
+  let error: unknown;
+  try {
+    await promise;
+  } catch (caughtError: unknown) {
+    error = caughtError;
+  }
+
+  expect(error).toBeInstanceOf(Error);
+  if (error instanceof Error) {
+    expect(error.message).toContain(substring);
+  }
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+describe('runner', () => {
+  let mockAgent: MockAgentShape;
+  let mockOnChunk: Mock<(c: AIMessageChunk, text: string) => void>;
+  let mockOnTurnComplete: Mock<(acc: AIMessageChunk, iter: string, msgs: BaseMessage[]) => Promise<BaseMessage[]>>;
+  let mockOnToolCall: Mock<(tc: unknown) => void>;
+  let mockOnActivity: Mock<(line: string) => void>;
+  let mockOnStatus: Mock<(message: string) => void>;
+  let mockRequestApproval: Mock<(command: string) => Promise<boolean>>;
+  let mockOnAgentMessage: Mock<(name: string, message: string) => Promise<void>>;
+  let mockTools: MockToolShape[];
+
+  let runAgentLoopSpy: Mock<typeof runner.runAgentLoop>;
 
   beforeEach(() => {
     mock.restore();
 
-    // Clear mock calls for module mocks
-    mockRandomUUID.mockClear();
+    mockRandomUuid.mockClear();
     mockCreateDeveloperPrompt.mockClear();
     mockCreateTesterPrompt.mockClear();
 
-    // Initialize runAgentLoopSpy as a spy on the actual function
-    runAgentLoopSpy = spyOn(runner, "runAgentLoop");
-    // Default mock implementation for runAgentLoop, can be overridden in specific test blocks
-    runAgentLoopSpy.mockImplementation(async (agent: Runnable<any, any>, invokeMessages: BaseMessage[], callbacks: any) => {
-      return [new AIMessage({ content: "Default agent loop response", tool_calls: [] })];
-    });
+    runAgentLoopSpy = spyOn(runner, 'runAgentLoop');
+    runAgentLoopSpy.mockImplementation(
+      async (_agent: unknown, _invokeMessages: BaseMessage[], callbacks: AgentLoopCallbacks) => {
+        const content = 'Default agent loop response';
+        callbacks.onChunk?.(new AIMessageChunk({content}), content);
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+        return [new AIMessage({content, tool_calls: []})];
+      },
+    );
 
     mockAgent = {
-      stream: mock(),
-      bindTools: mock((tools) => ({ ...mockAgent, tools })),
+      stream: mock(async function* (_messages: BaseMessage[]): AsyncGenerator<AIMessageChunk> {
+        // Default empty stream
+      }),
+      bindTools: mock((_tools: unknown[]) => mockAgent),
     };
 
-    mockCallbacks = {
-      onChunk: mock(),
-      onTurnComplete: mock((acc, iter, msgs) => Promise.resolve(msgs)),
-      onToolCall: mock(),
-      onActivity: mock((line) => { /* console.log("onActivity called with:", line); */ }),
-      onStatus: mock(),
-      requestApproval: mock(() => Promise.resolve(true)),
-      onAgentMessage: mock(),
-      agentName: "TestAgent",
-      agentTools: [],
-    };
+    mockOnChunk = mock((_c: AIMessageChunk, _text: string) => undefined);
+    mockOnTurnComplete = mock(async (_acc: AIMessageChunk, _iter: string, msgs: BaseMessage[]) => msgs);
+    mockOnToolCall = mock((_tc: unknown) => undefined);
+    mockOnActivity = mock((_line: string) => undefined);
+    mockOnStatus = mock((_message: string) => undefined);
+    mockRequestApproval = mock(async (_command: string) => true);
+    mockOnAgentMessage = mock(async (_name: string, _message: string) => undefined);
 
-    // Mock tools for runAgentLoop tests (plain objects to bypass schema validation from LangChain's tool helper)
     mockTools = [
       {
-        name: "test_tool",
-        description: "A test tool",
-        schema: z.object({ input: z.string() }),
-        invoke: mock((toolCall) => new ToolMessage({ content: `Tool output: ${toolCall.args.input}`, tool_call_id: mockRandomUUID(), name: "test_tool" })),
+        name: 'test_tool',
+        description: 'A test tool',
+        schema: z.object({input: z.string()}),
+        invoke: mock((toolCall: Record<string, unknown>) => {
+          const {args} = toolCall;
+          const input = args !== null && typeof args === 'object' && 'input' in args ? String(args.input) : '';
+          return new ToolMessage({
+            content: `Tool output: ${input}`,
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+            tool_call_id: mockRandomUuid(),
+            name: 'test_tool',
+          });
+        }),
       },
       {
-        name: "run_command",
-        description: "Run a command",
-        schema: z.object({ command: z.string() }),
-        invoke: mock((toolCall) => new ToolMessage({ content: `Command output: ${toolCall.args.command}`, tool_call_id: mockRandomUUID(), name: "run_command" })),
+        name: 'run_command',
+        description: 'Run a command',
+        schema: z.object({command: z.string()}),
+        invoke: mock((toolCall: Record<string, unknown>) => {
+          const {args} = toolCall;
+          const command = args !== null && typeof args === 'object' && 'command' in args ? String(args.command) : '';
+          return new ToolMessage({
+            content: `Command output: ${command}`,
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+            tool_call_id: mockRandomUuid(),
+            name: 'run_command',
+          });
+        }),
       },
     ];
   });
@@ -85,322 +141,327 @@ describe("runner", () => {
     mock.restore();
   });
 
-  describe("runAgentLoop", () => {
+  function buildCallbacks(agentTools: MockToolShape[] = []) {
+    return {
+      onChunk: mockOnChunk,
+      onTurnComplete: mockOnTurnComplete,
+      onToolCall: mockOnToolCall,
+      onActivity: mockOnActivity,
+      onStatus: mockOnStatus,
+      requestApproval: mockRequestApproval,
+      onAgentMessage: mockOnAgentMessage,
+      agentName: 'TestAgent',
+      agentTools,
+    };
+  }
+
+  describe('runAgentLoop', () => {
     beforeEach(() => {
-      // Restore runAgentLoop to its original implementation for these tests
-      // as we are testing runAgentLoop itself, not its interaction with runSubAgent
       runAgentLoopSpy.mockRestore();
     });
 
-    it("should run a loop until the agent returns a message without tool calls", async () => {
+    it('should run a loop until the agent returns a message without tool calls', async () => {
       mockAgent.stream.mockImplementationOnce(async function* () {
-        yield new AIMessageChunk({ content: "Hello from agent!" });
+        yield new AIMessageChunk({content: 'Hello from agent!'});
       });
 
-      const result = await runner.runAgentLoop(mockAgent, [], mockCallbacks);
+      const result = await runner.runAgentLoop(mockAgent, [], buildCallbacks());
 
       expect(mockAgent.stream).toHaveBeenCalledTimes(1);
-      expect(mockCallbacks.onChunk).toHaveBeenCalled();
-      expect(mockCallbacks.onAgentMessage).toHaveBeenCalledWith("TestAgent", "Hello from agent!");
+      expect(mockOnChunk).toHaveBeenCalled();
+      expect(mockOnAgentMessage).toHaveBeenCalledWith('TestAgent', 'Hello from agent!');
       expect(result).toHaveLength(1);
       expect(result[0]).toBeInstanceOf(AIMessage);
-      expect((result[0] as AIMessage).content).toBe("Hello from agent!");
+      expect(result[0].content).toBe('Hello from agent!');
     });
 
-    it("should handle tool calls and append tool messages", async () => {
+    it('should handle tool calls and append tool messages', async () => {
       mockAgent.stream
         .mockImplementationOnce(async function* () {
           yield new AIMessageChunk({
-            content: "Calling tool",
-            tool_calls: [{ id: "call1", name: "test_tool", args: { input: "test" } }],
+            content: 'Calling tool',
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+            tool_calls: [{id: 'call1', name: 'test_tool', args: {input: 'test'}}],
           });
         })
         .mockImplementationOnce(async function* () {
-          yield new AIMessageChunk({ content: "Finished with tool" });
+          yield new AIMessageChunk({content: 'Finished with tool'});
         });
 
-      mockCallbacks.agentTools = mockTools;
-
-      const result = await runner.runAgentLoop(mockAgent, [], mockCallbacks);
+      const result = await runner.runAgentLoop(mockAgent, [], buildCallbacks(mockTools));
 
       expect(mockAgent.stream).toHaveBeenCalledTimes(2);
-      expect(mockCallbacks.onToolCall).toHaveBeenCalledWith({ id: "call1", name: "test_tool", args: { input: "test" } });
-      expect(mockCallbacks.onActivity).toHaveBeenCalledWith("TestAgent: test_tool(input: test)");
+      expect(mockOnToolCall).toHaveBeenCalledWith({id: 'call1', name: 'test_tool', args: {input: 'test'}});
+      expect(mockOnActivity).toHaveBeenCalledWith('TestAgent: test_tool(input: test)');
       expect(result).toHaveLength(3);
       expect(result[0]).toBeInstanceOf(AIMessage);
-      expect((result[0] as AIMessage).content).toBe("Calling tool");
+      expect(result[0].content).toBe('Calling tool');
       expect(result[1]).toBeInstanceOf(ToolMessage);
-      expect((result[1] as ToolMessage).content).toBe("Tool output: test");
+      expect(result[1].content).toBe('Tool output: test');
       expect(result[2]).toBeInstanceOf(AIMessage);
-      expect((result[2] as AIMessage).content).toBe("Finished with tool");
+      expect(result[2].content).toBe('Finished with tool');
     });
 
-    it("should request approval for run_command tool calls", async () => {
+    it('should request approval for run_command tool calls', async () => {
       mockAgent.stream
         .mockImplementationOnce(async function* () {
           yield new AIMessageChunk({
-            content: "Running command",
-            tool_calls: [{ id: "call1", name: "run_command", args: { command: "ls -la" } }],
+            content: 'Running command',
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+            tool_calls: [{id: 'call1', name: 'run_command', args: {command: 'ls -la'}}],
           });
         })
         .mockImplementationOnce(async function* () {
-          yield new AIMessageChunk({ content: "Command executed" });
+          yield new AIMessageChunk({content: 'Command executed'});
         });
 
-      mockCallbacks.agentTools = mockTools;
-      mockCallbacks.requestApproval.mockResolvedValueOnce(true); // Approve the command
+      mockRequestApproval.mockResolvedValueOnce(true);
 
-      const result = await runner.runAgentLoop(mockAgent, [], mockCallbacks);
+      const result = await runner.runAgentLoop(mockAgent, [], buildCallbacks(mockTools));
 
-      expect(mockCallbacks.requestApproval).toHaveBeenCalledWith("ls -la");
+      expect(mockRequestApproval).toHaveBeenCalledWith('ls -la');
       expect(result).toHaveLength(3);
       expect(result[1]).toBeInstanceOf(ToolMessage);
-      expect((result[1] as AIMessage).content).toBe("Command output: ls -la");
+      expect(result[1].content).toBe('Command output: ls -la');
     });
 
-    it("should deny run_command tool calls if approval is denied", async () => {
+    it('should deny run_command tool calls if approval is denied', async () => {
       mockAgent.stream
         .mockImplementationOnce(async function* () {
           yield new AIMessageChunk({
-            content: "Running command",
-            tool_calls: [{ id: "call1", name: "run_command", args: { command: "rm -rf /" } }],
+            content: 'Running command',
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+            tool_calls: [{id: 'call1', name: 'run_command', args: {command: 'rm -rf /'}}],
           });
         })
         .mockImplementationOnce(async function* () {
-          yield new AIMessageChunk({ content: "Command denied" });
+          yield new AIMessageChunk({content: 'Command denied'});
         });
 
-      mockCallbacks.agentTools = mockTools;
-      mockCallbacks.requestApproval.mockResolvedValueOnce(false); // Deny the command
+      mockRequestApproval.mockResolvedValueOnce(false);
 
-      const result = await runner.runAgentLoop(mockAgent, [], mockCallbacks);
+      const result = await runner.runAgentLoop(mockAgent, [], buildCallbacks(mockTools));
 
-      expect(mockCallbacks.requestApproval).toHaveBeenCalledWith("rm -rf /");
-      expect(mockCallbacks.onActivity).toHaveBeenCalledWith(expect.stringContaining("User denied execution"));
+      expect(mockRequestApproval).toHaveBeenCalledWith('rm -rf /');
+      expect(mockOnActivity).toHaveBeenCalledWith(expect.stringContaining('User denied execution'));
       expect(result).toHaveLength(3);
       expect(result[1]).toBeInstanceOf(ToolMessage);
-      expect((result[1] as AIMessage).content).toBe("Error: User denied execution of this command.");
+      expect(result[1].content).toBe('Error: User denied execution of this command.');
     });
 
-    it("should handle unknown tools", async () => {
+    it('should handle unknown tools', async () => {
       mockAgent.stream
         .mockImplementationOnce(async function* () {
           yield new AIMessageChunk({
-            content: "Calling unknown tool",
-            tool_calls: [{ id: "call1", name: "unknown_tool", args: {} }],
+            content: 'Calling unknown tool',
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+            tool_calls: [{id: 'call1', name: 'unknown_tool', args: {}}],
           });
         })
         .mockImplementationOnce(async function* () {
-          yield new AIMessageChunk({ content: "Handled unknown tool" });
+          yield new AIMessageChunk({content: 'Handled unknown tool'});
         });
 
-      mockCallbacks.agentTools = []; // Ensure no tools are found
+      const result = await runner.runAgentLoop(mockAgent, [], buildCallbacks());
 
-      const result = await runner.runAgentLoop(mockAgent, [], mockCallbacks);
-
-      expect(mockCallbacks.onActivity).toHaveBeenCalledWith(expect.stringContaining("TestAgent: unknown_tool()"));
+      expect(mockOnActivity).toHaveBeenCalledWith(expect.stringContaining('TestAgent: unknown_tool()'));
       expect(result).toHaveLength(3);
       expect(result[1]).toBeInstanceOf(ToolMessage);
-      expect((result[1] as AIMessage).content).toBe("Unknown tool: unknown_tool");
+      expect(result[1].content).toBe('Unknown tool: unknown_tool');
     });
 
-    it("should abort mid-stream when AbortSignal fires", async () => {
+    it('should abort mid-stream when AbortSignal fires', async () => {
       const controller = new AbortController();
 
       mockAgent.stream.mockImplementationOnce(async function* () {
-        yield new AIMessageChunk({ content: "chunk one" });
-        controller.abort(new Error("INTERRUPTED: user stopped"));
-        yield new AIMessageChunk({ content: "chunk two" });
-        yield new AIMessageChunk({ content: "chunk three" });
+        yield new AIMessageChunk({content: 'chunk one'});
+        controller.abort(new Error('INTERRUPTED: user stopped'));
+        yield new AIMessageChunk({content: 'chunk two'});
+        yield new AIMessageChunk({content: 'chunk three'});
       });
 
-      await expect(
-        runner.runAgentLoop(mockAgent, [], mockCallbacks, controller.signal),
-      ).rejects.toThrow("INTERRUPTED:");
+      await expectToThrow(runner.runAgentLoop(mockAgent, [], buildCallbacks(), controller.signal), 'INTERRUPTED:');
 
-      // Only the first chunk should have been processed before abort was detected
-      expect(mockCallbacks.onChunk).toHaveBeenCalledTimes(1);
+      expect(mockOnChunk).toHaveBeenCalledTimes(1);
     });
 
-    it("should normalize a DOMException AbortError into an INTERRUPTED error", async () => {
+    it('should normalize a DOMException AbortError into an INTERRUPTED error', async () => {
       const controller = new AbortController();
-      const abortError = Object.assign(new Error("The user aborted a request."), { name: "AbortError" });
-      controller.abort(new Error("INTERRUPTED: aborted"));
+      const abortError = Object.assign(new Error('The user aborted a request.'), {name: 'AbortError'});
+      controller.abort(new Error('INTERRUPTED: aborted'));
 
       mockAgent.stream.mockImplementationOnce(async function* () {
+        yield new AIMessageChunk({content: ''});
         throw abortError;
-        yield new AIMessageChunk({ content: "never" });
       });
 
-      await expect(
-        runner.runAgentLoop(mockAgent, [], mockCallbacks, controller.signal),
-      ).rejects.toThrow("INTERRUPTED:");
+      await expectToThrow(runner.runAgentLoop(mockAgent, [], buildCallbacks(), controller.signal), 'INTERRUPTED:');
     });
 
-    it("should handle tool invocation errors", async () => {
-      const failingTool = {
-        name: "failing_tool",
-        description: "A tool that always fails",
+    it('should handle tool invocation errors', async () => {
+      const failingTool: MockToolShape = {
+        name: 'failing_tool',
+        description: 'A tool that always fails',
         schema: z.object({}),
-        invoke: mock((toolCall) => { throw new Error("Tool failed intentionally"); }),
-      } as any;
+        invoke: mock((_toolCall: Record<string, unknown>) => {
+          throw new Error('Tool failed intentionally');
+        }),
+      };
 
       mockAgent.stream
         .mockImplementationOnce(async function* () {
           yield new AIMessageChunk({
-            content: "Calling failing tool",
-            tool_calls: [{ id: "call1", name: "failing_tool", args: {} }],
+            content: 'Calling failing tool',
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+            tool_calls: [{id: 'call1', name: 'failing_tool', args: {}}],
           });
         })
         .mockImplementationOnce(async function* () {
-          yield new AIMessageChunk({ content: "Handled tool error" });
+          yield new AIMessageChunk({content: 'Handled tool error'});
         });
 
-      mockCallbacks.agentTools = [...mockTools, failingTool];
+      const result = await runner.runAgentLoop(mockAgent, [], buildCallbacks([...mockTools, failingTool]));
 
-      const result = await runner.runAgentLoop(mockAgent, [], mockCallbacks);
-
-      expect(mockCallbacks.onActivity).toHaveBeenCalledWith(expect.stringContaining("Tool error: Tool failed intentionally"));
+      expect(mockOnActivity).toHaveBeenCalledWith(expect.stringContaining('Tool error: Tool failed intentionally'));
       expect(result).toHaveLength(3);
       expect(result[1]).toBeInstanceOf(ToolMessage);
-      expect((result[1] as AIMessage).content).toBe("Tool error: Tool failed intentionally");
+      expect(result[1].content).toBe('Tool error: Tool failed intentionally');
     });
   });
 
-  describe("runSubAgent", () => {
-    let mockPromptFn: any;
-    let mockAgentModel: any;
+  describe('runSubAgent', () => {
+    let mockPromptFn: Mock<() => typeof mockPromptObject>;
+    let mockAgentModel: MockAgentShape;
 
     beforeEach(() => {
-      // For runSubAgent tests, we want to mock runAgentLoop's behavior
-      runAgentLoopSpy.mockImplementation(async (agent: Runnable<any, any>, invokeMessages: BaseMessage[], callbacks: any) => {
-        const content = "Sub-agent response";
-        // Simulate streaming behavior for onChunk callback
-        callbacks.onChunk?.(new AIMessageChunk({ content: content.slice(0, 5) }), content.slice(0, 5));
-        callbacks.onChunk?.(new AIMessageChunk({ content: content.slice(5) }), content);
-        return [new AIMessage({ content: content, tool_calls: [] })];
-      });
+      runAgentLoopSpy.mockImplementation(
+        async (_agent: unknown, _invokeMessages: BaseMessage[], callbacks: AgentLoopCallbacks) => {
+          const content = 'Sub-agent response';
+          callbacks.onChunk?.(new AIMessageChunk({content: content.slice(0, 5)}), content.slice(0, 5));
+          callbacks.onChunk?.(new AIMessageChunk({content: content.slice(5)}), content);
+          // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+          return [new AIMessage({content, tool_calls: []})];
+        },
+      );
 
       mockPromptFn = mock(() => mockPromptObject);
       mockAgentModel = {
-        bindTools: mock((tools) => ({
-          stream: mock(async function* () {
-            yield new AIMessageChunk({ content: "Sub-agent response from bindTools" });
-          }),
-        })),
+        stream: mock(async function* (): AsyncGenerator<AIMessageChunk> {
+          yield new AIMessageChunk({content: 'Sub-agent response from bindTools'});
+        }),
+        bindTools: mock((_tools: unknown[]) => mockAgentModel),
       };
     });
 
-    it("should bind tools and format prompt messages", async () => {
-      const message = "Do something";
-      const result = await runner.runSubAgent(
-        mockAgentModel,
-        mockTools,
-        mockPromptFn,
+    it('should bind tools and format prompt messages', async () => {
+      const message = 'Do something';
+      const result = await runner.runSubAgent({
+        agent: mockAgentModel,
+        agentTools: mockTools,
+        promptFn: mockPromptFn,
         message,
-        mockCallbacks.onStatus,
-        "SubAgent",
-        mockCallbacks.onActivity,
-        mockCallbacks.requestApproval,
-        mockCallbacks.onAgentMessage,
-      );
+        onStatus: mockOnStatus,
+        agentName: 'SubAgent',
+        onActivity: mockOnActivity,
+        requestApproval: mockRequestApproval,
+        onAgentMessage: mockOnAgentMessage,
+      });
 
       expect(mockAgentModel.bindTools).toHaveBeenCalledWith(mockTools);
       expect(mockPromptFn).toHaveBeenCalled();
-      expect(mockPromptObject.formatMessages).toHaveBeenCalledWith({ input: message });
+      expect(mockPromptObject.formatMessages).toHaveBeenCalledWith({input: message});
       expect(runAgentLoopSpy).toHaveBeenCalled();
-      expect(result).toBe("Sub-agent response");
+      expect(result).toBe('Sub-agent response');
     });
 
-    it("should return the full text from the agent loop", async () => {
-      const message = "Perform task";
-      const result = await runner.runSubAgent(
-        mockAgentModel,
-        mockTools,
-        mockPromptFn,
+    it('should return the full text from the agent loop', async () => {
+      const message = 'Perform task';
+      const result = await runner.runSubAgent({
+        agent: mockAgentModel,
+        agentTools: mockTools,
+        promptFn: mockPromptFn,
         message,
-        mockCallbacks.onStatus,
-        "SubAgent",
-        mockCallbacks.onActivity,
-        mockCallbacks.requestApproval,
-        mockCallbacks.onAgentMessage,
-      );
-      expect(result).toBe("Sub-agent response");
+        onStatus: mockOnStatus,
+        agentName: 'SubAgent',
+        onActivity: mockOnActivity,
+        requestApproval: mockRequestApproval,
+        onAgentMessage: mockOnAgentMessage,
+      });
+      expect(result).toBe('Sub-agent response');
     });
   });
 
-  describe("createSendMessageTool", () => {
-    let mockDeveloperAgent: any;
-    let mockTesterAgent: any;
-    let sendMessageTool: any;
+  describe('createSendMessageTool', () => {
+    let mockDeveloperAgent: MockAgentShape;
+    let mockTesterAgent: MockAgentShape;
+    let sendMessageTool: ReturnType<typeof runner.createSendMessageTool>;
 
     beforeEach(() => {
-      mock.restore(); // Restore all mocks, including runAgentLoopSpy
-      // Re-spy on runAgentLoop for createSendMessageTool tests
-      runAgentLoopSpy = spyOn(runner, "runAgentLoop").mockImplementation(async (agent: Runnable<any, any>, invokeMessages: BaseMessage[], callbacks: any) => {
-        const content = "Sub-agent finished task";
-        callbacks.onChunk?.(new AIMessageChunk({ content: content }), content);
-        return [new AIMessage({ content: content, tool_calls: [] })];
-      });
-
-      // Mock developerAgent and testerAgent to stream a simple response
-      const createMockAgent = (agentName: string) => ({
-        bindTools: mock((tools) => ({
-          stream: mock(async function* () {
-            yield new AIMessageChunk({ content: `${agentName} streamed response` });
-          }),
-        })),
-      });
-
-      mockDeveloperAgent = createMockAgent("Developer");
-      mockTesterAgent = createMockAgent("Tester");
-
-      sendMessageTool = runner.createSendMessageTool(
-        mockDeveloperAgent,
-        mockTesterAgent,
-        mockCallbacks.onStatus,
-        mockCallbacks.onActivity,
-        mockCallbacks.requestApproval,
-        mockCallbacks.onAgentMessage,
+      mock.restore();
+      runAgentLoopSpy = spyOn(runner, 'runAgentLoop').mockImplementation(
+        async (_agent: unknown, _invokeMessages: BaseMessage[], callbacks: AgentLoopCallbacks) => {
+          const content = 'Sub-agent finished task';
+          callbacks.onChunk?.(new AIMessageChunk({content}), content);
+          // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain API field
+          return [new AIMessage({content, tool_calls: []})];
+        },
       );
+
+      const createMockAgent = (): MockAgentShape => {
+        const agent: MockAgentShape = {
+          stream: mock(async function* (): AsyncGenerator<AIMessageChunk> {
+            yield new AIMessageChunk({content: 'streamed response'});
+          }),
+          bindTools: mock((_tools: unknown[]) => agent),
+        };
+        return agent;
+      };
+
+      mockDeveloperAgent = createMockAgent();
+      mockTesterAgent = createMockAgent();
+
+      sendMessageTool = runner.createSendMessageTool({
+        developer: mockDeveloperAgent,
+        tester: mockTesterAgent,
+        onStatus: mockOnStatus,
+        onActivity: mockOnActivity,
+        requestApproval: mockRequestApproval,
+        onAgentMessage: mockOnAgentMessage,
+      });
     });
 
-    it("should create a tool with the correct name and description", () => {
-      expect(sendMessageTool.name).toBe("send_message");
+    it('should create a tool with the correct name and description', () => {
+      expect(sendMessageTool.name).toBe('send_message');
       expect(sendMessageTool.description).toBe(
         "Delegate a task to a sub-agent. Use 'developer' to implement code changes, 'tester' to write and run tests.",
       );
-      expect(sendMessageTool.schema.parse({ id: "developer", message: "test" })).toEqual({
-        id: "developer",
-        message: "test",
+      expect(sendMessageTool.schema.parse({id: 'developer', message: 'test'})).toEqual({
+        id: 'developer',
+        message: 'test',
       });
     });
 
-    it("should call runSubAgent for the developer agent", async () => {
-      const result = await sendMessageTool.invoke({ id: "developer", message: "Implement feature X" });
+    it('should call runSubAgent for the developer agent', async () => {
+      const result = await sendMessageTool.invoke({id: 'developer', message: 'Implement feature X'});
 
-      expect(mockCallbacks.onStatus).toHaveBeenCalledWith("Developer is working...");
-      // Expect runAgentLoopSpy to have been called, as runAgentLoop calls it
+      expect(mockOnStatus).toHaveBeenCalledWith('Developer is working...');
       expect(runAgentLoopSpy).toHaveBeenCalled();
-      expect(result).toBe(JSON.stringify({ id: "coordinator", status: "success", message: "Sub-agent finished task" }));
+      expect(result).toBe(JSON.stringify({id: 'coordinator', status: 'success', message: 'Sub-agent finished task'}));
     });
 
-    it("should call runSubAgent for the tester agent", async () => {
-      const result = await sendMessageTool.invoke({ id: "tester", message: "Write tests for Y" });
+    it('should call runSubAgent for the tester agent', async () => {
+      const result = await sendMessageTool.invoke({id: 'tester', message: 'Write tests for Y'});
 
-      expect(mockCallbacks.onStatus).toHaveBeenCalledWith("Tester is working...");
-      // Expect runAgentLoopSpy to have been called, as runAgentLoop calls it
+      expect(mockOnStatus).toHaveBeenCalledWith('Tester is working...');
       expect(runAgentLoopSpy).toHaveBeenCalled();
-      expect(result).toBe(JSON.stringify({ id: "coordinator", status: "success", message: "Sub-agent finished task" }));
+      expect(result).toBe(JSON.stringify({id: 'coordinator', status: 'success', message: 'Sub-agent finished task'}));
     });
 
-    it("should return a failure message for an unknown agent ID", async () => {
-      await expect(sendMessageTool.invoke({ id: "unknown", message: "Some message" })).rejects.toThrow(
-        expect.objectContaining({
-          message: expect.stringContaining("Invalid option: expected one of \"developer\"|\"tester\""),
-        }),
+    it('should return a failure message for an unknown agent ID', async () => {
+      await expectToThrow(
+        sendMessageTool.invoke({id: 'unknown', message: 'Some message'}),
+        'Invalid option: expected one of "developer"|"tester"',
       );
-      // Ensure runAgentLoopSpy was not called for an unknown agent ID
       expect(runAgentLoopSpy).not.toHaveBeenCalled();
     });
   });
