@@ -1,8 +1,6 @@
 import {createInterface} from 'node:readline/promises';
 import {stdin, stdout} from 'node:process';
 import {expect, mock, beforeEach, afterEach, describe, it} from 'bun:test';
-import {createDeveloper, createPlanner, createTester} from '../llm/llm.js';
-import {createPlannerPrompt} from '../llm/prompt.js';
 import type {AppConfig} from '../types';
 import {startApp} from './app.js';
 
@@ -16,16 +14,12 @@ void mock.module('readline/promises', () => ({
     off: mock(),
   })),
 }));
-void mock.module('../retrieval/store', () => ({
-  createVectorStore: mock(() => ({})),
-}));
-void mock.module('../llm/llm', () => ({
-  createDeveloper: mock(() => ({})),
-  createPlanner: mock(() => ({})),
-  createTester: mock(() => ({})),
-}));
-void mock.module('../llm/prompt', () => ({
-  createPlannerPrompt: mock(() => ({})),
+
+const mockCreateCodeAgent = mock(async () => ({}));
+
+void mock.module('../llm/darunner', () => ({
+  createCodeAgent: mockCreateCodeAgent,
+  runCodeAgent: mock(async () => ''),
 }));
 
 describe('startApp', () => {
@@ -65,10 +59,7 @@ describe('startApp', () => {
       historySize: 1000,
     });
 
-    expect(createPlanner).toHaveBeenCalledWith(mockConfig);
-    expect(createDeveloper).toHaveBeenCalledWith(mockConfig);
-    expect(createTester).toHaveBeenCalledWith(mockConfig);
-    expect(createPlannerPrompt).toHaveBeenCalled();
+    expect(mockCreateCodeAgent).toHaveBeenCalled();
     expect(mockQuestion).toHaveBeenCalled();
   });
 });

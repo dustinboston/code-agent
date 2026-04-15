@@ -18,3 +18,4 @@ Thumbs.db
 
 # LLMs
 .claude
+.agents

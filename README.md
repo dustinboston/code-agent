@@ -19,6 +19,7 @@ Code Agent leverages a multi-agent architecture to tackle complex software devel
 - **Package Manager**: Bun
 - **LLM Orchestration**: LangChain.js (including `@langchain/anthropic`, `@langchain/openai`, `@langchain/google`, `@langchain/community`, `@langchain/core`)
 - **CLI Framework**: Commander.js
+- **Agent Framework**: DeepAgents
 
 ## Getting Started
 
@@ -58,6 +59,7 @@ bun install
 ## Features
 
 - **Interactive TUI**: A rich terminal user interface for an engaging user experience.
+- **Memory System**: Learns from interactions and remembers preferences.
 - **Multi-Agent Collaboration**: Utilizes specialized AI agents to streamline development workflows.
 - **Safe Execution**: Emphasizes cautious and reversible actions, especially for shared or critical operations.
 - **Platform Agnostic**: Reads any agents file, CLAUDE.md, GEMINI.md, AGENTS.md, etc. Works with Anthropic, Gemini, or OpenAI models, all configurable.

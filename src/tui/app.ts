@@ -2,56 +2,46 @@ import process, {stdin, stdout} from 'node:process';
 import * as readline from 'node:readline/promises';
 import {randomUUID} from 'node:crypto';
 import chalk from 'chalk';
-import {HumanMessage, AIMessage, type AIMessageChunk, type BaseMessage} from '@langchain/core/messages';
-import type {ChatAnthropic} from '@langchain/anthropic';
-import type {ChatPromptTemplate} from '@langchain/core/prompts';
-import {type DynamicStructuredTool} from '@langchain/core/tools';
-import type {ChatOpenAI} from '@langchain/openai';
-import type {ChatGoogle} from '@langchain/google';
-import {createDeveloper, createPlanner, createTester} from '../llm/llm.js';
-import {createPlannerPrompt} from '../llm/prompt.js';
-import {readFileTool, listDirectoryTool} from '../tools/filesystem.js';
-import {createSendMessageTool, runAgentLoop} from '../llm/runner.js';
+import {
+  type ApprovalRef,
+  type CodeAgent,
+  type RunCodeAgentOptions,
+  createCodeAgent,
+  runCodeAgent,
+} from '../llm/darunner.js';
 import type {AppConfig, ChatMessage} from '../types.js';
 import {processSlashCommand} from './commands.js';
 import {printChatMessage} from './format.js';
 
-type AgentModel = ChatAnthropic | ChatOpenAI | ChatGoogle;
-
 type CliAppState = {
-  state: 'initializing' | 'idle' | 'generating' | 'error' | 'retrieving';
+  state: 'initializing' | 'idle' | 'generating' | 'error';
   statusMsg: string;
   errorMsg: string;
-  llm: AgentModel[];
-  chatPromptTemplate: ChatPromptTemplate | undefined;
+  agent: CodeAgent | undefined;
+  approvalRef: ApprovalRef;
   completedMessages: ChatMessage[];
   abortController?: AbortController | undefined;
+  threadId: string;
 };
 
 function writeToStdout(text: string): void {
   process.stdout.write(text);
 }
 
-async function initializeApp(config: AppConfig): Promise<CliAppState> {
+async function initializeApp(config: AppConfig, approvalRef: ApprovalRef): Promise<CliAppState> {
   const appState: CliAppState = {
     state: 'initializing',
-    statusMsg: 'Initializing... ',
+    statusMsg: 'Initializing...',
     errorMsg: '',
-    llm: [],
-    chatPromptTemplate: undefined,
+    agent: undefined,
+    approvalRef,
     completedMessages: [],
     abortController: undefined,
+    threadId: randomUUID(),
   };
 
   try {
-    const planner: AgentModel = createPlanner(config);
-    const developer: AgentModel = createDeveloper(config);
-    const tester: AgentModel = createTester(config);
-
-    const prompt = await createPlannerPrompt();
-
-    appState.llm = [planner, developer, tester];
-    appState.chatPromptTemplate = prompt;
+    appState.agent = await createCodeAgent(config, approvalRef);
     appState.state = 'idle';
     appState.statusMsg = '';
   } catch (error) {
@@ -94,19 +84,11 @@ function buildRequestApproval(rl: readline.Interface, config: AppConfig) {
   };
 }
 
-function extractText(content: AIMessageChunk['content']): string {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content.map((p) => (typeof p === 'string' ? p : 'text' in p ? p.text : '')).join('');
-  }
-
-  return '';
-}
-
-function resolveAgentRole(agentName: string): 'developer' | 'tester' {
+function resolveAgentColor(agentName: string): (text: string) => string {
   const lower = agentName.toLowerCase();
-  if (lower === 'developer' || lower === 'tester') return lower;
-  return 'developer';
+  if (lower === 'developer') return chalk.bold.blue;
+  if (lower === 'tester') return chalk.bold.magenta;
+  return chalk.bold.green;
 }
 
 async function generateResponse(
@@ -116,8 +98,7 @@ async function generateResponse(
   config: AppConfig,
 ): Promise<void> {
   appState.abortController = new AbortController();
-
-  const requestApproval = buildRequestApproval(rl, config);
+  appState.approvalRef.requestApproval = buildRequestApproval(rl, config);
 
   const userMessage: ChatMessage = {
     id: randomUUID(),
@@ -127,123 +108,58 @@ async function generateResponse(
   };
   appState.completedMessages = [...appState.completedMessages, userMessage].slice(-20);
 
-  const chatHistory = appState.completedMessages
-    .filter((m) => m.role === 'user' || m.role === 'assistant')
-    .map((m) => (m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)));
-
   appState.state = 'generating';
   appState.statusMsg = 'Processing...';
 
   try {
-    const [planner, developer, tester] = appState.llm;
-    const writeActivity = (line: string): void => {
-      writeToStdout(chalk.dim(`    | ${line}`) + '\n');
-    };
-
-    const writeAgentMessage = async (agentName: string, text: string): Promise<void> => {
-      const message: ChatMessage = {
-        id: randomUUID(),
-        role: resolveAgentRole(agentName),
-        content: text,
-        timestamp: new Date().toISOString(),
-      };
-      printChatMessage(writeToStdout, message);
-      appState.completedMessages = [...appState.completedMessages, message].slice(-20);
-    };
-
-    const sendMessageTool = createSendMessageTool({
-      developer,
-      tester,
-      onStatus(message) {
-        appState.statusMsg = message;
-      },
-      onActivity: writeActivity,
-      requestApproval,
-      onAgentMessage: writeAgentMessage,
-      signal: appState.abortController.signal,
-    });
-    const plannerTools: DynamicStructuredTool[] = [readFileTool, listDirectoryTool, sendMessageTool];
-    const plannerWithTools = planner.bindTools(plannerTools);
-
-    const promptMessages =
-      (await appState.chatPromptTemplate?.formatMessages({
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- LangChain template variable
-        chat_history: chatHistory,
-        input: trimmedInput,
-      })) ?? [];
-
-    let invokeMessages: BaseMessage[] = [...promptMessages];
-
     writeToStdout(chalk.dim('Processing...\n'));
 
-    let headerWritten = false;
+    let currentSpeaker = '';
 
-    invokeMessages = await runAgentLoop(
-      plannerWithTools,
-      invokeMessages,
-      {
-        onChunk(c) {
-          const text = extractText(c.content);
-          if (text) {
-            if (!headerWritten) {
-              writeToStdout(chalk.bold.green('Planner') + chalk.dim(` [${new Date().toLocaleTimeString()}]`) + '\n  ');
-              headerWritten = true;
-            }
-
-            writeToStdout(text.replaceAll('\n', '\n  '));
+    const agentOptions: RunCodeAgentOptions = {
+      input: trimmedInput,
+      threadId: appState.threadId,
+      signal: appState.abortController.signal,
+      callbacks: {
+        onText(text, agentName) {
+          if (agentName !== currentSpeaker) {
+            if (currentSpeaker) writeToStdout('\n\n');
+            currentSpeaker = agentName;
+            const label = agentName.charAt(0).toUpperCase() + agentName.slice(1);
+            const colorFn = resolveAgentColor(agentName);
+            writeToStdout(colorFn(label) + chalk.dim(` [${new Date().toLocaleTimeString()}]`) + '\n  ');
           }
+
+          writeToStdout(text.replaceAll('\n', '\n  '));
         },
-        async onTurnComplete(accChunk, iterationText, currentInvokeMessages) {
-          if (headerWritten) {
+        onToolStart(toolName, agentName) {
+          if (currentSpeaker) {
             writeToStdout('\n\n');
-            headerWritten = false;
+            currentSpeaker = '';
           }
 
-          if (iterationText.trim()) {
-            const plannerMessage: ChatMessage = {
-              id: randomUUID(),
-              role: 'assistant',
-              content: iterationText,
-              timestamp: new Date().toISOString(),
-            };
-            appState.completedMessages = [...appState.completedMessages, plannerMessage].slice(-20);
-          }
-
-          return currentInvokeMessages;
+          const label = agentName.charAt(0).toUpperCase() + agentName.slice(1);
+          writeToStdout(chalk.dim(`    | ${label}: ${toolName}...`) + '\n');
         },
-        onToolCall(tc) {
-          if (
-            tc.name === 'send_message' &&
-            tc.args &&
-            typeof tc.args === 'object' &&
-            'id' in tc.args &&
-            'message' in tc.args
-          ) {
-            const sendArgs = {
-              id: String(tc.args.id),
-              message: String(tc.args.message),
-            };
-            const target = sendArgs.id.charAt(0).toUpperCase() + sendArgs.id.slice(1);
-            const m: ChatMessage = {
-              id: randomUUID(),
-              role: 'system',
-              content: `[Planner → ${target}]\n${sendArgs.message}`,
-              timestamp: new Date().toISOString(),
-            };
-            printChatMessage(writeToStdout, m);
-            appState.completedMessages = [...appState.completedMessages, m].slice(-20);
-          }
-        },
-        onActivity: writeActivity,
         onStatus(message) {
           appState.statusMsg = message;
         },
-        requestApproval,
-        agentName: 'Planner',
-        agentTools: plannerTools,
       },
-      appState.abortController.signal,
-    );
+    };
+
+    const fullText = await runCodeAgent(appState.agent!, agentOptions);
+
+    if (currentSpeaker) writeToStdout('\n\n');
+
+    if (fullText.trim()) {
+      const assistantMessage: ChatMessage = {
+        id: randomUUID(),
+        role: 'assistant',
+        content: fullText,
+        timestamp: new Date().toISOString(),
+      };
+      appState.completedMessages = [...appState.completedMessages, assistantMessage].slice(-20);
+    }
 
     appState.state = 'idle';
     appState.statusMsg = '';
@@ -315,6 +231,9 @@ async function handleSlashCommand(
     addSystemMsg: addSystemMessage,
     setCompletedMessages(messages) {
       appState.completedMessages = messages;
+      if (messages.length === 0) {
+        appState.threadId = randomUUID();
+      }
     },
     exit() {
       rl.close();
@@ -401,7 +320,8 @@ export async function startApp(config: AppConfig): Promise<void> {
     throw new Error('SIGINT');
   });
 
-  const appState = await initializeApp(config);
+  const approvalRef: ApprovalRef = {};
+  const appState = await initializeApp(config, approvalRef);
 
   try {
     await replIteration(appState, rl, config);
