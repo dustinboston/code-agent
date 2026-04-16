@@ -8,6 +8,7 @@ import {MemorySaver} from '@langchain/langgraph';
 import {deletePathTool} from '../tools/filesystem.js';
 import type {AppConfig} from '../types.js';
 import {createPlannerPrompt, createDeveloperPrompt, createTesterPrompt} from './prompt.js';
+import {createPlanner, createDeveloper, createTester} from './llm.js';
 
 const memoryRootDir = './.agents/memory';
 
@@ -120,7 +121,7 @@ export async function createCodeAgent(config: AppConfig, approvalRef: ApprovalRe
     name: 'developer',
     description: 'Responsible for writing code to implement features and fix bugs.',
     systemPrompt: developerPrompt,
-    model: `${config.developer.provider}:${config.developer.model}`,
+    model: createDeveloper(config),
     tools: [runCommand, deletePathTool],
   };
 
@@ -128,13 +129,13 @@ export async function createCodeAgent(config: AppConfig, approvalRef: ApprovalRe
     name: 'tester',
     description: 'Responsible for testing code to ensure it works correctly and meets requirements.',
     systemPrompt: testerPrompt,
-    model: `${config.tester.provider}:${config.tester.model}`,
+    model: createTester(config),
     tools: [runCommand, deletePathTool],
   };
 
   return createDeepAgent({
     name: 'planner',
-    model: `${config.planner.provider}:${config.planner.model}`,
+    model: createPlanner(config),
     systemPrompt: plannerPrompt,
     memory: ['/memory/index.md'],
     tools: [runCommand],
